@@ -12,6 +12,8 @@ if [[ "$MODE" == probe ]]; then exit 0; fi
 python3 "$ROOT/scripts/space_guard.py" "$ROOT" &
 GUARD=$!
 trap 'kill "$GUARD" 2>/dev/null || true' EXIT
+echo '48ab181277cad611970415212578b97e9e8a2f3314c58330bff9107a8ec22d04  configs/24.10-config.buildinfo' | sha256sum -c -
+echo '6581f340ac1bbca6bacc66acc32ac79ee668cd4c4ca759671659a9e682e858d7  configs/24.10-feeds.buildinfo' | sha256sum -c -
 SOURCE_COMMIT=5fe2cddefc93d59156ca66740ed896ae954d8e8e
 git clone --filter=blob:none --no-checkout https://github.com/istoreos/istoreos.git source
 cd source
@@ -26,7 +28,8 @@ if [[ "$MODE" == usb-test ]]; then
   git apply --check "$ROOT/patches/02-n1-usb-test-guard.patch"
   git apply "$ROOT/patches/02-n1-usb-test-guard.patch"
   for pkg in kmod-bluetooth bluez-daemon bluez-utils bluez-utils-extra bluez-utils-btmon; do
-    ./scripts/config --enable "PACKAGE_$pkg"
+    sed -i "/^CONFIG_PACKAGE_${pkg}=/d; /^# CONFIG_PACKAGE_${pkg} is not set$/d" .config
+    printf 'CONFIG_PACKAGE_%s=y\n' "$pkg" >> .config
   done
   mkdir -p files/lib/firmware/brcm files/etc
   curl --fail --location --retry 3 https://raw.githubusercontent.com/armbian/firmware/5d685ad233b4dfd03a4d025fa0061f6b0f850cb3/BCM4345C0.hcd -o files/lib/firmware/brcm/BCM4345C0.hcd

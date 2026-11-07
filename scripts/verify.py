@@ -1,4 +1,4 @@
-import gzip
+import zlib
 import hashlib
 import pathlib
 import shutil
@@ -26,8 +26,14 @@ else:
     images = list((source / 'bin/targets/amlogic/meson').glob('*phicomm_n1*sysupgrade.img.gz'))
     assert len(images) == 1, f'Expected one N1 image: {images}'
     image = root / 'test.img'
-    with gzip.open(images[0], 'rb') as src, image.open('wb') as dst:
-        shutil.copyfileobj(src, dst)
+    decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    with images[0].open('rb') as src, image.open('wb') as dst:
+        while chunk := src.read(1024 * 1024):
+            dst.write(decoder.decompress(chunk))
+            if decoder.eof:
+                break
+        assert decoder.eof, 'Truncated gzip image'
+        dst.write(decoder.flush())
     with image.open('rb') as f:
         mbr = f.read(512)
     signature = int.from_bytes(mbr[440:444], 'little')
