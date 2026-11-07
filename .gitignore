@@ -1,0 +1,14 @@
+*
+!.gitignore
+!README.md
+!configs/
+!configs/24.10-config.buildinfo
+!configs/24.10-feeds.buildinfo
+!patches/
+!patches/*.patch
+!scripts/
+!scripts/*.sh
+!scripts/*.py
+!.github/
+!.github/workflows/
+!.github/workflows/build.yml
