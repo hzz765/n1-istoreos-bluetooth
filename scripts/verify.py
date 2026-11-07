@@ -53,6 +53,23 @@ else:
         dst.write(decoder.flush())
     with image.open('rb') as f:
         mbr = f.read(512)
+    assert mbr[510:512] == bytes.fromhex('55aa'), 'Invalid MBR boot signature'
+    partitions = []
+    for index in range(4):
+        entry = mbr[446 + index * 16:462 + index * 16]
+        start = int.from_bytes(entry[8:12], 'little')
+        sectors = int.from_bytes(entry[12:16], 'little')
+        if sectors:
+            assert start > 0 and entry[4] != 0, 'Invalid partition entry'
+            partitions.append((start, sectors))
+    assert len(partitions) == 3, 'Expected boot, rootfs and blank overlay partitions only'
+    assert all(a + size <= b for (a, size), (b, _) in zip(partitions, partitions[1:])), 'Overlapping partitions'
+    minimum_usb_bytes = max(start + size for start, size in partitions) * 512
+    report.append(f'minimum_usb_capacity_bytes={minimum_usb_bytes}')
+    # Upstream intentionally stores only the overlay reset marker, not its full blank extent.
+    with image.open('rb') as handle:
+        handle.seek(partitions[2][0] * 512)
+        assert handle.read(8) == b'RESET000', 'Overlay must be freshly initialized on the USB'
     signature = int.from_bytes(mbr[440:444], 'little')
     assert signature != 0, 'Invalid MBR signature'
     assert f'{signature:08x}' == (root / 'usb-signature.txt').read_text().strip(), 'Wrong USB partition signature'
