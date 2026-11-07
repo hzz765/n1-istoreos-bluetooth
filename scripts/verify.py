@@ -136,7 +136,9 @@ else:
         if mounted:
             subprocess.run(['sudo', 'umount', str(boot)], check=True)
         subprocess.run(['sudo', 'losetup', '-d', loop], check=True)
-    shutil.copyfile(images[0], out / 'n1-usb-test.img.gz')
+    temporary_image = out / '.n1-usb-test.img.gz.partial'
+    shutil.copyfile(images[0], temporary_image)
+    temporary_image.replace(out / 'n1-usb-test.img.gz')
     report.append('HARDWARE TEST PENDING. Boot-chain, backup, PARTUUID collision and rollback gates require local verification.')
 (out / 'verification.txt').write_text('\n'.join(report) + '\n')
 files = [p for p in out.iterdir() if p.is_file() and p.name not in ['SHA256SUMS', 'build.log']]
