@@ -11,7 +11,21 @@ if [[ "$MODE" == probe ]]; then exit 0; fi
 # Watch only this build's process group. Stop before exhausting the disk.
 python3 "$ROOT/scripts/space_guard.py" "$ROOT" &
 GUARD=$!
-trap 'kill "$GUARD" 2>/dev/null || true' EXIT
+python3 "$ROOT/scripts/build_progress.py" "$ROOT/source" &
+PROGRESS=$!
+trap 'kill "$GUARD" "$PROGRESS" 2>/dev/null || true' EXIT
+printf 'Runner CPUs: '; nproc
+grep -E '^(MemTotal|SwapTotal):' /proc/meminfo
+export NINJA_STATUS='[%f/%t, %es elapsed] '
+stage() {
+  local name=$1
+  shift
+  echo "::group::$name"
+  local started=$SECONDS
+  "$@"
+  echo "Stage finished: $name; elapsed=$((SECONDS - started)) seconds"
+  echo '::endgroup::'
+}
 echo '48ab181277cad611970415212578b97e9e8a2f3314c58330bff9107a8ec22d04  configs/24.10-config.buildinfo' | sha256sum -c -
 echo '6581f340ac1bbca6bacc66acc32ac79ee668cd4c4ca759671659a9e682e858d7  configs/24.10-feeds.buildinfo' | sha256sum -c -
 SOURCE_COMMIT=5fe2cddefc93d59156ca66740ed896ae954d8e8e
@@ -45,14 +59,14 @@ make defconfig
 cp .config "$ROOT/public-artifacts/build.config"
 git rev-parse HEAD > "$ROOT/public-artifacts/source-commit.txt"
 cp feeds.conf "$ROOT/public-artifacts/feeds.lock"
-make download -j4 "${MAKE_ARGS[@]}"
+stage download make download -j4 V=s "${MAKE_ARGS[@]}"
 snapshot downloaded
-make tools/install -j4 "${MAKE_ARGS[@]}"
+stage tools make tools/install -j4 V=s "${MAKE_ARGS[@]}"
 snapshot tools
-make toolchain/install -j4 "${MAKE_ARGS[@]}"
+stage toolchain make toolchain/install -j4 V=s "${MAKE_ARGS[@]}"
 snapshot toolchain
-make target/linux/compile -j4 V=s "${MAKE_ARGS[@]}"
+stage kernel make target/linux/compile -j4 V=s "${MAKE_ARGS[@]}"
 snapshot kernel
-make -j4 V=s "${MAKE_ARGS[@]}"
+stage firmware make -j4 V=s "${MAKE_ARGS[@]}"
 snapshot packages-and-image
 python3 "$ROOT/scripts/verify.py" "$MODE" "$ROOT"
