@@ -5,6 +5,23 @@ import shutil
 import subprocess
 import sys
 
+def script_text(path):
+    """Read a single, uncompressed legacy U-Boot script, including its size table."""
+    data = path.read_bytes()
+    assert len(data) >= 72 and data[:4] == bytes.fromhex('27051956'), path.name
+    header = bytearray(data[:64])
+    header_crc = int.from_bytes(header[4:8], 'big')
+    header[4:8] = bytes(4)
+    assert zlib.crc32(header) == header_crc, f'{path.name}: header CRC'
+    assert data[30:32] == bytes([6, 0]), f'{path.name}: expected uncompressed script'
+    payload = data[64:]
+    assert len(payload) == int.from_bytes(data[12:16], 'big'), f'{path.name}: size'
+    assert zlib.crc32(payload) == int.from_bytes(data[24:28], 'big'), f'{path.name}: data CRC'
+    length = int.from_bytes(payload[:4], 'big')
+    assert payload[4:8] == bytes(4) and length == len(payload) - 8, f'{path.name}: script table'
+    return payload[8:].decode('utf-8')
+
+
 mode, root_arg = sys.argv[1:]
 root = pathlib.Path(root_arg)
 source = root / 'source'
@@ -67,7 +84,7 @@ else:
         emmc = getprop('/aliases', 'mmc1')
         assert getprop(emmc, 'status') == 'disabled', 'eMMC must be disabled'
         for script in ['boot.scr', 'aml_autoscript', 's905_autoscript', 'emmc_autoscript']:
-            data = (boot / script).read_bytes()[64:].decode('utf-8')
+            data = script_text(boot / script)
             assert all(command not in data for command in ['saveenv', 'env save', 'mmc write', 'mmc erase']), script
             if script in ['aml_autoscript', 'emmc_autoscript']:
                 assert data.strip().endswith('exit') and 'fatload' not in data, script
