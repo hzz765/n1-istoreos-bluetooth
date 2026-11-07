@@ -1,11 +1,13 @@
 # N1 iStoreOS Bluetooth USB test
 
-Experimental, reproducible cloud build for Phicomm N1 on iStoreOS 24.10 / Linux 6.6.144.
+Experimental, pinned-source cloud build for Phicomm N1 on iStoreOS 24.10 / Linux 6.6.144.
 Hardware testing and rollback verification are pending. Cloud build success alone does not authorize booting the image.
 
 ## Build
 
 Use Actions → N1 isolated USB build → Run workflow. Run `probe`, then `baseline`, inspect its results, then `usb-test`.
+The baseline compiles the unmodified kernel and records its configuration/ABI; it does not build a second complete application image. The USB stage builds the full firmware. Each stage has its own Actions step, verbose compiler output and elapsed time. LLVM reports completed/total build edges; a five-minute activity snapshot reports CPU use and the latest LLVM build edge without process arguments. Disk checks stay quiet except for low-space warnings.
+
 The pinned source is a candidate corresponding to the official August 2026 build timestamp. Exact reproduction remains subject to baseline verification.
 Feeds and public build configuration are pinned in `configs/`. The Bluetooth firmware candidate comes from Armbian firmware commit `5d685ad233b4dfd03a4d025fa0061f6b0f850cb3` and is SHA256-checked.
 
