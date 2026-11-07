@@ -76,7 +76,12 @@ if [[ "$MODE" == usb-test ]]; then
 fi
 run_build_stage() {
   case "$1" in
-    download) stage download make download -j4 V=s "${MAKE_ARGS[@]}" ;;
+    download)
+      if [[ "$MODE" == baseline ]]; then
+        echo 'Baseline: download sources on demand in tools/toolchain/kernel stages; skip firmware package downloads.'
+      else
+        stage download make download -j4 V=s "${MAKE_ARGS[@]}"
+      fi ;;
     tools) stage tools make tools/install -j4 V=s "${MAKE_ARGS[@]}" ;;
     toolchain) stage toolchain make toolchain/install -j4 V=s "${MAKE_ARGS[@]}" ;;
     kernel) stage kernel make target/linux/compile -j4 V=s "${MAKE_ARGS[@]}" ;;
