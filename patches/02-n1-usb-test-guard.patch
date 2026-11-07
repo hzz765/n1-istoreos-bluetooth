@@ -24,8 +24,32 @@
 -saveenv
 -sleep 1
 -reboot
-+echo "N1 USB test: persistent boot environment updates disabled"
++echo "N1 USB test: this boot entry is disabled; use verified USB entry"
 +exit
+--- a/target/linux/amlogic/image/emmc_autoscript.cmd
++++ b/target/linux/amlogic/image/emmc_autoscript.cmd
+@@ -1,8 +1,2 @@
+-if fatload mmc 1 0x1000000 u-boot.emmc; then go 0x1000000; fi;
+-setenv dtb_addr 0x1000000
+-setenv env_addr 0x1040000
+-setenv kernel_addr 0x11000000
+-setenv initrd_addr 0x13000000
+-setenv boot_start booti ${kernel_addr} ${initrd_addr} ${dtb_addr}
+-setenv addmac 'if printenv mac; then setenv bootargs ${bootargs} mac=${mac}; elif printenv eth_mac; then setenv bootargs ${bootargs} mac=${eth_mac}; elif printenv ethaddr; then setenv bootargs ${bootargs} mac=${ethaddr}; fi'
+-if fatload mmc 1 ${env_addr} uEnv.txt && env import -t ${env_addr} ${filesize}; setenv bootargs ${APPEND}; then if fatload mmc 1 ${kernel_addr} ${LINUX}; then if fatload mmc 1 ${initrd_addr} ${INITRD}; then if fatload mmc 1 ${dtb_addr} ${FDT}; then run addmac; run boot_start; fi; fi; fi; fi;
++echo "N1 USB test: this boot entry is disabled; use verified USB entry"
++exit
+--- a/target/linux/amlogic/image/s905_autoscript.cmd
++++ b/target/linux/amlogic/image/s905_autoscript.cmd
+@@ -1,6 +1,6 @@
+ if test "${usbdev}" = ""; then
+-	setenv devtype "mmc"
+-	setenv devnum 0
++	echo "N1 USB test: usbdev missing; stopping"
++	exit
+ else
+ 	setenv devtype "usb"
+ 	setenv devnum ${usbdev}
 --- a/target/linux/amlogic/image/amlogic.bootscript
 +++ b/target/linux/amlogic/image/amlogic.bootscript
 @@ -1,6 +1,6 @@
@@ -36,3 +60,21 @@
  	if test "${l_devtype}" = "usb"; then
  		setenv l_mmc "0 1 2 3"
  	fi
+@@ -23,10 +23,13 @@
+ 			elif printenv ethaddr; then
+ 				setenv bootargs ${bootargs} mac=${ethaddr}
+ 			fi
+-			load ${devtype} ${devnum}:1 ${fdt_addr_r} /amlogic.dtb
+-			load ${devtype} ${devnum}:1 ${kernel_addr_r} /kernel.img
+-			fdt addr ${fdt_addr_r}
+-			booti ${kernel_addr_r} - ${fdt_addr_r}
++			if load ${devtype} ${devnum}:1 ${fdt_addr_r} /amlogic.dtb; then
++				if load ${devtype} ${devnum}:1 ${kernel_addr_r} /kernel.img; then
++					if fdt addr ${fdt_addr_r}; then
++						booti ${kernel_addr_r} - ${fdt_addr_r}
++					fi
++				fi
++			fi
+ 		fi
+ 	done
+ done
