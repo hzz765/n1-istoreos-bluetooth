@@ -1,0 +1,38 @@
+--- /dev/null
++++ b/target/linux/amlogic/patches-6.6/007-n1-usb-test-disable-emmc.patch
+@@ -0,0 +1,10 @@
++--- a/arch/arm64/boot/dts/amlogic/meson-gxl-s905d-phicomm-n1.dts
+++++ b/arch/arm64/boot/dts/amlogic/meson-gxl-s905d-phicomm-n1.dts
++@@ -74,3 +74,7 @@
++ 		clock-names = "lpo";
++ 	};
++ };
+++
+++&sd_emmc_c {
+++	status = "disabled";
+++};
+--- a/target/linux/amlogic/image/aml_autoscript.cmd
++++ b/target/linux/amlogic/image/aml_autoscript.cmd
+@@ -1,10 +1,2 @@
+-if printenv bootfromsd; then exit; else setenv ab 0; fi;
+-setenv bootcmd 'run start_autoscript; run storeboot'
+-setenv start_autoscript 'if mmcinfo; then run start_mmc_autoscript; fi; if usb start; then run start_usb_autoscript; fi; run start_emmc_autoscript'
+-setenv start_emmc_autoscript 'if fatload mmc 1 1020000 emmc_autoscript; then autoscr 1020000; fi;'
+-setenv start_mmc_autoscript 'if fatload mmc 0 1020000 s905_autoscript; then env delete usbdev; autoscr 1020000; fi;'
+-setenv start_usb_autoscript 'for usbdev in 0 1 2 3; do if fatload usb ${usbdev} 1020000 s905_autoscript; then autoscr 1020000; fi; done'
+-setenv upgrade_step 2
+-saveenv
+-sleep 1
+-reboot
++echo "N1 USB test: persistent boot environment updates disabled"
++exit
+--- a/target/linux/amlogic/image/amlogic.bootscript
++++ b/target/linux/amlogic/image/amlogic.bootscript
+@@ -1,6 +1,6 @@
+ echo "Start AMLOGIC mainline U-boot"
+ setenv l_mmc "0"
+-for l_devtype in "sd usb mmc" ; do
++for l_devtype in "usb" ; do
+ 	if test "${l_devtype}" = "usb"; then
+ 		setenv l_mmc "0 1 2 3"
+ 	fi

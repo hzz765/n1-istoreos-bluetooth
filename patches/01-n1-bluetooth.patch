@@ -1,0 +1,45 @@
+--- a/package/kernel/linux/modules/other.mk
++++ b/package/kernel/linux/modules/other.mk
+@@ -43,7 +43,9 @@
+ 	CONFIG_BT_HCIBTUSB_MTK=y \
+ 	CONFIG_BT_HCIBTUSB_RTL=y \
+ 	CONFIG_BT_HCIUART \
+-	CONFIG_BT_HCIUART_BCM=n \
++	CONFIG_BT_HCIUART_BCM=y \
++	CONFIG_BT_HCIUART_SERDEV=y \
++	CONFIG_BT_BCM \
+ 	CONFIG_BT_HCIUART_INTEL=n \
+ 	CONFIG_BT_HCIUART_H4 \
+ 	CONFIG_BT_HCIUART_NOKIA=n \
+@@ -55,6 +57,7 @@
+ 	$(LINUX_DIR)/net/bluetooth/bnep/bnep.ko \
+ 	$(LINUX_DIR)/net/bluetooth/hidp/hidp.ko \
+ 	$(LINUX_DIR)/drivers/bluetooth/hci_uart.ko \
++	$(LINUX_DIR)/drivers/bluetooth/btbcm.ko \
+ 	$(LINUX_DIR)/drivers/bluetooth/btusb.ko \
+ 	$(LINUX_DIR)/drivers/bluetooth/btintel.ko \
+ 	$(LINUX_DIR)/drivers/bluetooth/btrtl.ko \
+--- /dev/null
++++ b/target/linux/amlogic/patches-6.6/006-n1-uart-bluetooth.patch
+@@ -0,0 +1,21 @@
++--- a/arch/arm64/boot/dts/amlogic/meson-gxl-s905d-phicomm-n1.dts
+++++ b/arch/arm64/boot/dts/amlogic/meson-gxl-s905d-phicomm-n1.dts
++@@ -59,3 +59,18 @@
++ 	snps,txpbl = <0x8>;
++ 	snps,rxpbl = <0x8>;
++ };
+++
+++&uart_A {
+++	status = "okay";
+++	pinctrl-0 = <&uart_a_pins>, <&uart_a_cts_rts_pins>;
+++	pinctrl-names = "default";
+++	uart-has-rtscts;
+++
+++	bluetooth {
+++		compatible = "brcm,bcm43438-bt";
+++		shutdown-gpios = <&gpio GPIOX_17 GPIO_ACTIVE_HIGH>;
+++		max-speed = <2000000>;
+++		clocks = <&wifi32k>;
+++		clock-names = "lpo";
+++	};
+++};
