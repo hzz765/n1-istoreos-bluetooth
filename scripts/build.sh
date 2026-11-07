@@ -4,7 +4,7 @@ ROOT=$(pwd)
 MODE=${1:?probe, baseline or usb-test required}
 mkdir -p public-artifacts
 exec > >(tee public-artifacts/build.log) 2>&1
-snapshot() { date -u; df -h .; df -i .; }
+snapshot() { echo "Stage: ${1:-start}"; date -u; df -h .; df -i .; }
 snapshot
 if [[ "$MODE" == probe ]]; then exit 0; fi
 [[ "$MODE" == baseline || "$MODE" == usb-test ]]
@@ -22,7 +22,12 @@ cp "$ROOT/configs/24.10-config.buildinfo" .config
 cp "$ROOT/configs/24.10-feeds.buildinfo" feeds.conf
 ./scripts/feeds update -a
 ./scripts/feeds install -a
+MAKE_ARGS=()
 if [[ "$MODE" == usb-test ]]; then
+  USB_SIGNATURE=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
+  [[ "$USB_SIGNATURE" != 00000000 ]]
+  MAKE_ARGS+=("IMG_PART_SIGNATURE=$USB_SIGNATURE")
+  printf "%s\n" "$USB_SIGNATURE" > "$ROOT/usb-signature.txt"
   git apply --check "$ROOT/patches/01-n1-bluetooth.patch"
   git apply "$ROOT/patches/01-n1-bluetooth.patch"
   git apply --check "$ROOT/patches/02-n1-usb-test-guard.patch"
@@ -40,13 +45,14 @@ make defconfig
 cp .config "$ROOT/public-artifacts/build.config"
 git rev-parse HEAD > "$ROOT/public-artifacts/source-commit.txt"
 cp feeds.conf "$ROOT/public-artifacts/feeds.lock"
-make download -j4
-snapshot
-make tools/install -j4
-make toolchain/install -j4
-snapshot
-make target/linux/compile -j4 V=s
-snapshot
-make -j4 V=s
-snapshot
+make download -j4 "${MAKE_ARGS[@]}"
+snapshot downloaded
+make tools/install -j4 "${MAKE_ARGS[@]}"
+snapshot tools
+make toolchain/install -j4 "${MAKE_ARGS[@]}"
+snapshot toolchain
+make target/linux/compile -j4 V=s "${MAKE_ARGS[@]}"
+snapshot kernel
+make -j4 V=s "${MAKE_ARGS[@]}"
+snapshot packages-and-image
 python3 "$ROOT/scripts/verify.py" "$MODE" "$ROOT"

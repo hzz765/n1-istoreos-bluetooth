@@ -78,3 +78,14 @@
  		fi
  	done
  done
+--- a/target/linux/amlogic/image/gen_amlogic_image.sh
++++ b/target/linux/amlogic/image/gen_amlogic_image.sh
+@@ -53,7 +53,7 @@
+ [ -n "$PADDING" ] && dd if=/dev/zero of="$OUTPUT" bs=512 seek="$USERDATAOFFSET" conv=notrunc count="$USERDATASIZE"
+ echo "RESET000" | dd of="$OUTPUT" bs=512 seek="$USERDATAOFFSET" conv=notrunc,sync count=1
+ 
+-mkfs.fat --invariant -n kernel -C "$OUTPUT.kernel" -S 512 "$((KERNELSIZE / 1024))"
++mkfs.fat --invariant -i "${SIGNATURE:?USB signature required}" -n n1-bt-test -C "$OUTPUT.kernel" -S 512 "$((KERNELSIZE / 1024))"
+ LC_ALL=C dos_dircopy "$KERNELDIR" /
+ 
+ dd if="$OUTPUT.kernel" of="$OUTPUT" bs=512 seek="$KERNELOFFSET" conv=notrunc

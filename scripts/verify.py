@@ -38,6 +38,7 @@ else:
         mbr = f.read(512)
     signature = int.from_bytes(mbr[440:444], 'little')
     assert signature != 0, 'Invalid MBR signature'
+    assert f'{signature:08x}' == (root / 'usb-signature.txt').read_text().strip(), 'Wrong USB partition signature'
     report.append(f'root_partuuid={signature:08x}-02; compare against ALL attached disks before boot')
     loop = subprocess.check_output(['sudo', 'losetup', '--find', '--show', '--partscan', str(image)], text=True).strip()
     boot = root / 'inspect-boot'
@@ -47,24 +48,53 @@ else:
     try:
         subprocess.run(['sudo', 'mount', '-o', 'ro', loop + 'p1', str(boot)], check=True)
         mounted = True
+        fat_uuid = subprocess.check_output(['sudo', 'blkid', '-s', 'UUID', '-o', 'value', loop + 'p1'], text=True).strip()
+        assert fat_uuid.replace('-', '').lower() == f'{signature:08x}', 'Wrong FAT volume ID'
+        report.append(f'boot_filesystem_uuid={fat_uuid}')
         dtb = boot / 'amlogic.dtb'
         dts = subprocess.check_output(['dtc', '-I', 'dtb', '-O', 'dts', str(dtb)], text=True)
         assert 'brcm,bcm43438-bt' in dts
         def getprop(node, prop):
             return subprocess.check_output(['fdtget', '-t', 's', str(dtb), node, prop], text=True).strip()
+        uart = '/soc/bus@c1100000/serial@84c0'
+        assert getprop(uart, 'status') == 'okay'
+        assert getprop(uart + '/bluetooth', 'compatible') == 'brcm,bcm43438-bt'
+        properties = subprocess.check_output(['fdtget', '-p', str(dtb), uart], text=True).splitlines()
+        assert 'uart-has-rtscts' in properties and 'pinctrl-0' in properties
+        speed = subprocess.check_output(['fdtget', '-t', 'u', str(dtb), uart + '/bluetooth', 'max-speed'], text=True).strip()
+        assert speed == '2000000'
+        assert getprop(uart + '/bluetooth', 'clock-names') == 'lpo'
         emmc = getprop('/aliases', 'mmc1')
         assert getprop(emmc, 'status') == 'disabled', 'eMMC must be disabled'
-        for script in ['boot.scr', 'aml_autoscript', 's905_autoscript']:
+        for script in ['boot.scr', 'aml_autoscript', 's905_autoscript', 'emmc_autoscript']:
             data = (boot / script).read_bytes()[64:].decode('utf-8')
-            assert 'saveenv' not in data and 'mmc write' not in data, script
+            assert all(command not in data for command in ['saveenv', 'env save', 'mmc write', 'mmc erase']), script
+            if script in ['aml_autoscript', 'emmc_autoscript']:
+                assert data.strip().endswith('exit') and 'fatload' not in data, script
+            if script == 's905_autoscript':
+                assert 'setenv devtype \"mmc\"' not in data, script
             if script == 'boot.scr':
                 assert 'for l_devtype in "usb"' in data
         subprocess.run(['sudo', 'unsquashfs', '-d', str(fs), loop + 'p2'], check=True, stdout=subprocess.DEVNULL)
         assert (fs / 'etc/n1-bt-usb-test').is_file()
         hcd = fs / 'lib/firmware/brcm/BCM4345C0.hcd'
         assert hashlib.sha256(hcd.read_bytes()).hexdigest() == '8bbf245399e66f68304ba0f9185159dd1d557c48b534f2e7be75e2e0f4cb4a9a'
+        modules = {}
         for module in ['bluetooth', 'hci_uart', 'btbcm']:
-            assert list((fs / 'lib/modules').rglob(module + '.ko')), module
+            matches = list((fs / 'lib/modules').rglob(module + '.ko'))
+            assert len(matches) == 1, module
+            modules[module] = matches[0]
+        releases = {p.parent.name for p in modules.values()}
+        assert releases == {'6.6.144'}, releases
+        available = {p.stem.replace('-', '_') for p in (fs / 'lib/modules').rglob('*.ko')}
+        for name, path in modules.items():
+            dependencies = subprocess.check_output(['modinfo', '-F', 'depends', str(path)], text=True).strip()
+            missing = {d.replace('-', '_') for d in dependencies.split(',') if d} - available
+            assert not missing, f'{name}: unpackaged dependencies {missing}'
+            report.append(f'{name}_depends={dependencies}')
+        vermagics = {subprocess.check_output(['modinfo', '-F', 'vermagic', str(p)], text=True).strip() for p in modules.values()}
+        assert len(vermagics) == 1, vermagics
+        report.append(f'module_vermagic={next(iter(vermagics))}')
         for binary in ['bluetoothctl', 'bluetoothd', 'btmgmt']:
             assert (fs / 'usr/bin' / binary).is_file(), binary
         report.append('PASS: kernel options, packed modules, HCD, BlueZ, eMMC-disabled DTB, boot scripts')
