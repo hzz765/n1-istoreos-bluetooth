@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 350
     env:
       BUILD_MODE: ${{ inputs.mode }}
-      CCACHE_MAXSIZE: 4GiB
+      CCACHE_MAXSIZE: 3GiB
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -54,9 +54,28 @@ jobs:
           key: n1-ccache-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu22-${{ hashFiles('configs/*', 'patches/*', 'scripts/build.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             n1-ccache-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu22-${{ hashFiles('configs/*', 'patches/*', 'scripts/build.sh') }}-
+      - name: Restore public source archive cache
+        if: inputs.mode == 'usb-test'
+        id: source_cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: download-cache
+          key: n1-sources-v1-${{ hashFiles('configs/*', 'scripts/build.sh', 'scripts/download_cache.py') }}
+      - name: Validate restored source archives
+        if: inputs.mode == 'usb-test'
+        run: python3 scripts/download_cache.py restore
       - name: Download verified sources
         if: inputs.mode != 'probe'
         run: setsid bash scripts/build.sh "$BUILD_MODE" download
+      - name: Prepare bounded source archive cache
+        if: inputs.mode == 'usb-test' && steps.source_cache.outputs.cache-hit != 'true'
+        run: python3 scripts/download_cache.py save
+      - name: Save public source archives
+        if: inputs.mode == 'usb-test' && steps.source_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: download-cache
+          key: ${{ steps.source_cache.outputs.cache-primary-key }}
       - name: Compile host tools including LLVM
         if: inputs.mode != 'probe'
         run: setsid bash scripts/build.sh "$BUILD_MODE" tools
@@ -84,6 +103,13 @@ jobs:
       - name: Verify baseline or USB image
         if: inputs.mode != 'probe'
         run: setsid bash scripts/build.sh "$BUILD_MODE" verify
+      - name: Save final compiler cache
+        if: always() && inputs.mode != 'probe' && steps.compiler_cache.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: source/.ccache
+          key: ${{ steps.compiler_cache.outputs.cache-primary-key }}-final
       - name: Check public artifact text for credentials
         if: always()
         id: public_scan
