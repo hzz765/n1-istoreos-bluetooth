@@ -1,9 +1,21 @@
 # N1 offline backup rescue — USB only
 
-**Hardware hold:** run 42453775773 failed its first N1 boot attempt (unchanged vendor
-Android splash, no Ethernet link). Unplugging USB restored the original system. The
-failure stage is unknown. Current console diagnostics changes are not hardware-validated;
-do not interpret earlier static/fixture checks as approval for another hardware test.
+**Hardware hold:** runs 42453775773 and 42461882731 both stopped at the original
+Android splash without reachable rescue networking. Removing USB restored iStoreOS.
+The shared vendor entry requested one byte beyond EOF: the inspected Amlogic 2015
+fs_read rejects that request, unlike U-Boot 2024.10. The revised entry requires a
+successful `fatsize` query and exact bounded `fatload`, clears stale sizes, and retains
+CRC validation. Missing `fatsize` stops safely; its availability in the installed vendor
+bootloader has not been established. This fixes a reproduced compatibility defect,
+not proof of the sole hardware failure or approval for another blind test.
+
+Official candidate 5fe2cddefc93d59156ca66740ed896ae954d8e8e loads the prebuilt
+u-boot-n1.bin at the same 0x1000000 address without an explicit byte count. It does not
+have the EOF issue. Its persistent environment changes and internal-disk fallback
+are intentionally not copied. Our source-built loader initialization remains a
+separate hardware uncertainty. `test_entry.py` runs the generated script with mocked
+commands under Bash and compiles the pinned legacy fs_read logic (host type renamed) with mocked FAT I/O;
+it is not vendor-Hush or board emulation.
 
 This is a separate rescue image, not an iStoreOS upgrade. Never upload it to a firmware
 upgrade page or install it to internal storage. Hardware boot and unplug rollback are
@@ -25,6 +37,8 @@ anything fails or kernel boot returns. It never executes scripts from USB or ope
 The inherited watchdog is explicitly stopped before loading. The entry scripts verify
 loader size/CRC using basic crc32 + itest (not optional crc32 -v), and loop on failure.
 Both native-endian and big-endian CRC storage used by U-Boot versions are supported.
+Two RAM words are zeroed before setting the low-word sentinel, including CRC=0,
+so the legacy LP64 itest.l eight-byte dereference cannot pick up stale high bits.
 Only documented RAM scratch space just past the bounded loader is written by entry scripts.
 
 Software read-only protection is not a physical write blocker. The original vendor boot

@@ -14,6 +14,7 @@ import struct
 import subprocess
 import sys
 import zlib
+from entry_script import make_entry
 
 WORK = Path('rescue-work')
 BASE = Path('base-artifact')
@@ -124,32 +125,7 @@ def finish():
     assert rehearsal['result'] == 'PASS'
     (boot / 'u-boot.emmc').unlink()  # Do not ship the old unbounded fallback loader.
     assert loader.stat().st_size < 4 * 1024**2
-    scratch = 0x01000000 + ((loader.stat().st_size + 4095) // 4096 + 1) * 4096
-    crc = zlib.crc32(loader.read_bytes())
-    swapped_crc = int.from_bytes(crc.to_bytes(4, 'big'), 'little')
-    sentinel = 0
-    while sentinel in (crc, swapped_crc):
-        sentinel += 1
-    entry = ('echo "N1 rescue: USB-only volatile chainload"\n'
-             'if usb start; then\n'
-             '  for n1_usb in 0 1 2 3; do\n'
-             f'    if fatload usb ${{n1_usb}}:1 0x01000000 n1-rescue-loader.bin {loader.stat().st_size + 1:x}; then\n'
-             f'      if test "${{filesize}}" = "{loader.stat().st_size:x}"; then\n'
-             f'        if mw.l {scratch:x} {sentinel:x} 2; then\n'
-             f'          if crc32 0x01000000 ${{filesize}} {scratch:x}; then\n'
-             f'            if itest.l *{scratch:x} == {crc:x} || itest.l *{scratch:x} == {swapped_crc:x}; then\n'
-             '              go 0x01000000\n'
-             '            fi\n'
-             '          fi\n'
-             '        fi\n'
-             '      fi\n'
-             '      echo "N1 rescue: loader failed; STOP"\n'
-             '      while test 1 = 1; do sleep 1; done\n'
-             '    fi\n'
-             '  done\n'
-             'fi\n'
-             'echo "N1 rescue: no loader; STOP"\n'
-             'while test 1 = 1; do sleep 1; done\n')
+    entry = make_entry(loader.read_bytes())
     (WORK / 'entry.cmd').write_text(entry)
     for name in ['boot.scr','aml_autoscript','s905_autoscript','emmc_autoscript']:
         subprocess.run(['mkimage','-A','arm','-O','linux','-T','script','-C','none','-a','0','-e','0',
@@ -200,7 +176,7 @@ def finish():
         with gzip.GzipFile(filename='', mode='wb', fileobj=target, compresslevel=6, mtime=0) as compressed:
             shutil.copyfileobj(source, compressed)
     shutil.copyfile(WORK / 'packages.txt', OUT / 'packages.txt')
-    for name in ['rehearsal.json','loader.config','loader-verification.json','boot-policy-tests.txt']:
+    for name in ['rehearsal.json','loader.config','loader-verification.json','boot-policy-tests.txt','entry-tests.txt']:
         shutil.copyfile(WORK / name, OUT / name)
     shutil.copyfile('rescue/README.md', OUT / 'README.md')
     report = [

@@ -30,6 +30,10 @@ jobs:
           path: base-artifact
       - name: Verify base files and prepare boot partition
         run: python3 rescue/package.py prepare
+      - name: Test vendor entry compatibility and malformed files
+        run: |
+          set -o pipefail
+          python3 rescue/test_entry.py | tee rescue-work/entry-tests.txt
       - name: Build and verify source-based USB-only chainloader
         run: bash rescue/build-loader.sh
       - name: Build isolated ARM64 rescue userspace
@@ -52,3 +56,4 @@ jobs:
             rescue-output/loader.config
             rescue-output/loader-verification.json
             rescue-output/boot-policy-tests.txt
+            rescue-output/entry-tests.txt
