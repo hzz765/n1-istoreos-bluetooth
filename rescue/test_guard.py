@@ -48,6 +48,20 @@ class SafetyTests(unittest.TestCase):
                 guard.ext4_used('/dev/not-a-real-device')
             execute.assert_not_called()
 
+    def test_clean_bit_does_not_override_pending_journal_or_orphans(self):
+        for feature in ('needs_recovery', 'orphan_present'):
+            text = 'Filesystem state: clean\nFilesystem features: has_journal extent ' + feature + '\n'
+            with patch.object(guard, 'run', side_effect=['ext4', text]), patch.object(guard.subprocess, 'run') as execute:
+                with self.assertRaisesRegex(RuntimeError, 'Pending journal/orphan recovery'):
+                    guard.ext4_used('/dev/not-a-real-device')
+                execute.assert_not_called()
+
+    def test_clean_filesystem_still_requires_readonly_full_check(self):
+        text = 'Filesystem state: clean\nFilesystem features: has_journal extent\nBlock count: 100\nFree blocks: 70\nBlock size: 4096\n'
+        with patch.object(guard, 'run', side_effect=['ext4', text]), patch.object(guard.subprocess, 'run') as execute:
+            self.assertEqual(guard.ext4_used('/dev/not-a-real-device'), 30 * 4096)
+            execute.assert_called_once_with(['e2fsck', '-f', '-n', '/dev/not-a-real-device'], check=True)
+
     def test_raw_copy_exact_range_and_refuses_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:
             src, dst = Path(directory) / 'source', Path(directory) / 'dest'

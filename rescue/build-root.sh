@@ -42,5 +42,6 @@ chroot "$ROOT" /bin/sh -ec 'partclone.ext4 --version; partclone.chkimg --version
 chroot "$ROOT" /usr/bin/python3 -m py_compile /sbin/n1-rescue
 printf '#!/bin/busybox sh\nexec /bin/busybox poweroff "$@"\n' > "$ROOT/sbin/poweroff"
 chmod 755 "$ROOT/sbin/poweroff"
+python3 rescue/rehearse.py "$ROOT"
 rm -f "$ROOT/usr/bin/qemu-aarch64-static"
 echo 'Rescue tools executed successfully under ARM64 emulation.'

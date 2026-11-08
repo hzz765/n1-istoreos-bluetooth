@@ -16,4 +16,6 @@
 !rescue/
 !rescue/*.sh
 !rescue/*.py
+!rescue/*.c
+!rescue/*.h
 !rescue/README.md

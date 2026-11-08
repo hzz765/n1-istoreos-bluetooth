@@ -12,9 +12,23 @@ mounts temporary runtime directories in RAM, and sets the eMMC main device, part
 and boot areas software read-only before enabling network access. It does not initialize
 an overlay, auto-mount data disks, activate swap or repair filesystems.
 
-Software read-only protection is not a physical write blocker and does not constrain
-vendor/chainloaded U-Boot before Linux starts. The upstream chainloaded binary is reused,
-not newly audited. Boot scripts search USB only and never persist environment changes.
+The old prebuilt chainloader is no longer distributed. A checksum-pinned U-Boot 2024.10
+source build uses the upstream Phicomm N1 DT, with MMC, networking, EFI, automatic distro
+boot and persistent environment backends disabled. Its replacement main_loop only tries
+USB 0..3, checks the exact root PARTUUID and kernel/DTB sizes and SHA256, and hangs if
+anything fails or kernel boot returns. It never executes scripts from USB or opens a CLI.
+The inherited watchdog is explicitly stopped before loading. The entry scripts verify
+loader size/CRC using basic crc32 + itest (not optional crc32 -v), and loop on failure.
+Both native-endian and big-endian CRC storage used by U-Boot versions are supported.
+Only documented RAM scratch space just past the bounded loader is written by entry scripts.
+
+Software read-only protection is not a physical write blocker. The original vendor boot
+code BEFORE any USB entry script executes is outside this image's control: an unreadable
+USB may never enter our script, and the existing firmware may then boot its original OS.
+This is not a promise to prevent all original-system writes before takeover. No internal
+boot environment or firmware is changed to alter that behavior. Actual takeover must be
+verified before calling the device isolated. A hardware hang/reset outside the verified
+software path also remains a hardware validation concern.
 
 ## Before writing or booting
 
@@ -59,7 +73,8 @@ n1-rescue backup --expect-emmc-bytes REVIEWED_EMMC_BYTE_SIZE
 The mount command accepts only an NTFS partition on a different USB disk. It refuses
 dirty/hibernated volumes rather than repairing them or deleting hibernation data.
 The backup command checks source capacity, read-only/unmounted state, filesystem clean
-state, destination identity, free space and a destination write/read test. It creates
+state and pending journal/orphan flags, a forced read-only e2fsck pass, destination identity,
+free space and a destination write/read test. Any nonzero e2fsck result stops the backup. It creates
 a new directory and never overwrites an existing backup or existing user files.
 
 Backup components: small partitions 1/2 as raw images; ext4 partitions 3/4 as Partclone
@@ -74,7 +89,8 @@ This avoids needing 128 GB for unused filesystem blocks. The live estimate, not 
 alone, decides whether the destination has enough space. Any failed operation leaves
 INCOMPLETE and must not be treated as a usable backup. Existing backups are not deleted.
 
-Success requires Partclone image checks and a full SHA256 reread. COMPLETE.json explicitly
+Raw copies record the hash of the source read stream and compare it with a destination
+reread. Success requires Partclone image checks and a full SHA256 reread. COMPLETE.json explicitly
 keeps restore rehearsal and hardware recovery as PENDING. Copy the checksums elsewhere
 and verify again on the computer. An additional rehearsal into sparse image files or
 spare media is required before claiming restoration verified. Rehearsal does not write
@@ -86,7 +102,16 @@ Do not run fsck repair on the original disk, force a clone, or bypass a protecti
 
 ## Current limits
 
-QEMU verifies ARM64 tools can execute, not N1 Ethernet/USB/boot behavior. The first real
+Cloud rehearsal uses ordinary synthetic image files, real ARM64 tools and an actual
+NTFS-3G mount. It runs the production backup function through a clearly isolated fixture
+identity adapter, restores the four partitions and all outside ranges, compares the whole
+synthetic disk byte-for-byte, checks boot-area hashes and validates file permissions,
+links, xattrs and ACL. Pending-journal/orphan and corruption/interruption cases must fail.
+The adapter is not installed into the firmware. These tests do not exercise physical N1
+device discovery. Thirty shared C-policy scenarios exercise boot failure behavior. They
+are not hardware emulation of U-Boot or its USB controller.
+
+QEMU exercises the ARM64 tools, not N1 Ethernet/USB/boot behavior. The first real
 boot, SSH connectivity and unplug rollback need local verification. A working USB backup
 environment does not by itself establish recovery after damaged vendor boot firmware.
 No claim of guaranteed recovery or zero hardware risk is made.

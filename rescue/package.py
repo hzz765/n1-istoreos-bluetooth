@@ -5,6 +5,7 @@ Only operates on regular files under rescue-work. Never opens a host block devic
 import ast
 import gzip
 import hashlib
+import json
 import os
 from pathlib import Path
 import secrets
@@ -56,6 +57,9 @@ def prepare():
     assert checksum(image) == BASE_SHA, 'Base image differs from the verified build'
     assert checksum(BASE / 'kernel.config') == '3185c23daa3b69ce80e16b5d78bf7c6af8befe838d410b3b8185359d12b800cc'
     WORK.mkdir(exist_ok=False)
+    signature = secrets.token_hex(4)
+    assert signature not in ['00000000', '1234abcd', '4631f166', '52454260']
+    (WORK / 'signature.txt').write_text(signature + '\n')
     # Ignore only the known OpenWrt fwtool trailer following the gzip member.
     decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
     raw = WORK / 'base.img'
@@ -113,7 +117,45 @@ def finish():
     assert not (root / 'root/.ssh/authorized_keys').exists()
     assert not list(root.rglob('*host_key'))
     assert '::sysinit:' not in (root / 'etc/inittab').read_text()
-    assert 'init=/sbin/n1-rescue-init' in script_text(boot / 'boot.scr')
+    loader = boot / 'n1-rescue-loader.bin'
+    loader_check = json.loads((WORK / 'loader-verification.json').read_text())
+    assert checksum(loader) == loader_check['loader_sha256']
+    rehearsal = json.loads((WORK / 'rehearsal.json').read_text())
+    assert rehearsal['result'] == 'PASS'
+    (boot / 'u-boot.emmc').unlink()  # Do not ship the old unbounded fallback loader.
+    assert loader.stat().st_size < 4 * 1024**2
+    scratch = 0x01000000 + ((loader.stat().st_size + 4095) // 4096 + 1) * 4096
+    crc = zlib.crc32(loader.read_bytes())
+    swapped_crc = int.from_bytes(crc.to_bytes(4, 'big'), 'little')
+    sentinel = 0
+    while sentinel in (crc, swapped_crc):
+        sentinel += 1
+    entry = ('echo "N1 rescue: USB-only volatile chainload"\n'
+             'if usb start; then\n'
+             '  for n1_usb in 0 1 2 3; do\n'
+             f'    if fatload usb ${{n1_usb}}:1 0x01000000 n1-rescue-loader.bin {loader.stat().st_size + 1:x}; then\n'
+             f'      if test "${{filesize}}" = "{loader.stat().st_size:x}"; then\n'
+             f'        if mw.l {scratch:x} {sentinel:x} 2; then\n'
+             f'          if crc32 0x01000000 ${{filesize}} {scratch:x}; then\n'
+             f'            if itest.l *{scratch:x} == {crc:x} || itest.l *{scratch:x} == {swapped_crc:x}; then\n'
+             '              go 0x01000000\n'
+             '            fi\n'
+             '          fi\n'
+             '        fi\n'
+             '      fi\n'
+             '      echo "N1 rescue: loader failed; STOP"\n'
+             '      while test 1 = 1; do sleep 1; done\n'
+             '    fi\n'
+             '  done\n'
+             'fi\n'
+             'echo "N1 rescue: no loader; STOP"\n'
+             'while test 1 = 1; do sleep 1; done\n')
+    (WORK / 'entry.cmd').write_text(entry)
+    for name in ['boot.scr','aml_autoscript','s905_autoscript','emmc_autoscript']:
+        subprocess.run(['mkimage','-A','arm','-O','linux','-T','script','-C','none','-a','0','-e','0',
+                        '-d',str(WORK/'entry.cmd'),str(boot/name)],check=True)
+        assert script_text(boot/name) == entry
+        assert not any(s in entry for s in ['saveenv','env save','mmc ', 'dhcp','tftp','reboot','reset','exit'])
     modules = root / 'lib/modules/6.6.144'
     assert modules.is_dir()
     for path in modules.rglob('*.ko'):
@@ -121,8 +163,7 @@ def finish():
         assert checksum(path) == checksum(WORK / 'original-root/lib/modules' / relative)
     squash = WORK / 'rescue.squashfs'
     subprocess.run(['mksquashfs', str(root), str(squash), '-noappend', '-comp', 'xz', '-b', '256k', '-no-xattrs', '-all-root'], check=True)
-    signature = secrets.token_hex(4)
-    assert signature not in ['00000000', '1234abcd', '4631f166']
+    signature = (WORK / 'signature.txt').read_text().strip()
     fat = WORK / 'rescue.fat'
     subprocess.run(['mkfs.fat', '-F', '16', '-i', signature, '-n', 'N1-RESCUE', '-C', str(fat), '65536'], check=True)
     for path in sorted(boot.iterdir()):
@@ -159,6 +200,8 @@ def finish():
         with gzip.GzipFile(filename='', mode='wb', fileobj=target, compresslevel=6, mtime=0) as compressed:
             shutil.copyfileobj(source, compressed)
     shutil.copyfile(WORK / 'packages.txt', OUT / 'packages.txt')
+    for name in ['rehearsal.json','loader.config','loader-verification.json','boot-policy-tests.txt']:
+        shutil.copyfile(WORK / name, OUT / name)
     shutil.copyfile('rescue/README.md', OUT / 'README.md')
     report = [
         'BUILD AND STATIC CHECKS PASSED; HARDWARE BOOT/ROLLBACK NOT YET VERIFIED',
@@ -168,8 +211,9 @@ def finish():
         'eMMC controller enabled for reads; custom init enforces software RO before network login',
         'No normal distro init, automount, overlay initialization or swap service',
         'Root partition is squashfs; no overlay partition',
-        'USB scripts do not save boot environment; upstream chainloaded U-Boot binary is unchanged',
-        'ARM64 rescue commands executed with QEMU; hardware I/O not tested',
+        'Source-built U-Boot 2024.10: no MMC/network/persistent environment backend; verified fixed USB boot policy',
+        'Entry scripts verify loader CRC and stop on return/failure; original vendor boot before entry remains outside image control',
+        'ARM64 tools completed NTFS backup/restore fixtures and failure cases; see rehearsal.json; hardware I/O not tested',
         'Public SSH key must be added locally; no keys or backups are build inputs',
         'root_partuuid=' + signature + '-02',
         'boot_filesystem_uuid=' + signature[:4].upper() + '-' + signature[4:].upper(),

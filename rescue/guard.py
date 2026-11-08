@@ -134,16 +134,24 @@ def mount_backup(device, expected_uuid):
 
 
 def copy_range(source, destination, offset, length):
+    digest = hashlib.sha256()
     with open(source, 'rb', buffering=0) as src, destination.open('xb') as dst:
         src.seek(offset)
         left = length
         while left:
             data = src.read(min(left, 4 * 1024 * 1024))
             check(bool(data), 'Unexpected end of source')
+            digest.update(data)
             dst.write(data)
             left -= len(data)
         dst.flush()
         os.fsync(dst.fileno())
+    readback = hashlib.sha256()
+    with destination.open('rb') as saved:
+        while chunk := saved.read(4 * 1024 * 1024):
+            readback.update(chunk)
+    check(readback.digest() == digest.digest(), 'Source stream / destination readback mismatch')
+    return digest.hexdigest()
 
 
 def ext4_used(device):
@@ -151,6 +159,13 @@ def ext4_used(device):
     text = run('dumpe2fs', '-h', device)
     values = dict(line.split(':', 1) for line in text.splitlines() if ':' in line)
     check(values['Filesystem state'].strip() == 'clean', 'Unclean filesystem; stop, do not repair the source: ' + device)
+    features = set(values.get('Filesystem features', '').split())
+    check('has_journal' in features, 'Expected journaled ext4; manual review required: ' + device)
+    check(not features.intersection({'needs_recovery', 'orphan_present'}),
+          'Pending journal/orphan recovery; stop, do not repair the source: ' + device)
+    # -n opens read-only and refuses repairs; -f checks even a nominally clean filesystem.
+    # Any nonzero status (including errors left uncorrected) aborts before cloning.
+    subprocess.run(['e2fsck', '-f', '-n', device], check=True)
     return (int(values['Block count']) - int(values['Free blocks'])) * int(values['Block size'])
 
 
@@ -210,20 +225,20 @@ def backup(expected_bytes):
         guard()
         filename = f'outside-partitions-{offset}-{length}.bin'
         print('Backing up non-filesystem region:', offset, length, flush=True)
-        copy_range(dev(main), directory / filename, offset, length)
-        manifest['ranges'].append({'file': filename, 'offset': offset, 'bytes': length})
+        digest = copy_range(dev(main), directory / filename, offset, length)
+        manifest['ranges'].append({'file': filename, 'offset': offset, 'bytes': length, 'source_sha256': digest})
     for i in (1, 2):
         guard()
         filename = f'partition-{i}.raw'
         length = parts[i - 1]['size'] * 512
-        copy_range(dev(main) + 'p' + str(i), directory / filename, 0, length)
-        manifest['ranges'].append({'file': filename, 'offset': parts[i - 1]['start'] * 512, 'bytes': length})
+        digest = copy_range(dev(main) + 'p' + str(i), directory / filename, 0, length)
+        manifest['ranges'].append({'file': filename, 'offset': parts[i - 1]['start'] * 512, 'bytes': length, 'source_sha256': digest})
     for suffix in ('boot0', 'boot1'):
         guard()
         length = int(run('blockdev', '--getsize64', dev(main + suffix)))
         filename = suffix + '.bin'
-        copy_range(dev(main + suffix), directory / filename, 0, length)
-        manifest['boot_areas'].append({'file': filename, 'area': suffix, 'bytes': length})
+        digest = copy_range(dev(main + suffix), directory / filename, 0, length)
+        manifest['boot_areas'].append({'file': filename, 'area': suffix, 'bytes': length, 'source_sha256': digest})
     for i in (3, 4):
         guard()
         filename = f'partition-{i}.partclone'

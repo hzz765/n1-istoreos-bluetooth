@@ -19,7 +19,7 @@ jobs:
         run: |
           python3 rescue/test_guard.py
           sudo apt-get update
-          sudo apt-get install -y debootstrap debian-archive-keyring qemu-user-static binfmt-support squashfs-tools device-tree-compiler u-boot-tools dosfstools mtools util-linux
+          sudo apt-get install -y debootstrap debian-archive-keyring qemu-user-static binfmt-support squashfs-tools device-tree-compiler u-boot-tools dosfstools mtools util-linux gcc-aarch64-linux-gnu bison flex libssl-dev libgnutls28-dev python3-setuptools swig python3-dev bc acl
           sudo update-binfmts --enable qemu-aarch64
       - name: Download the verified matching kernel build
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -30,6 +30,8 @@ jobs:
           path: base-artifact
       - name: Verify base files and prepare boot partition
         run: python3 rescue/package.py prepare
+      - name: Build and verify source-based USB-only chainloader
+        run: bash rescue/build-loader.sh
       - name: Build isolated ARM64 rescue userspace
         run: sudo bash rescue/build-root.sh
       - name: Package and check rescue image
@@ -46,3 +48,7 @@ jobs:
             rescue-output/verification.txt
             rescue-output/packages.txt
             rescue-output/README.md
+            rescue-output/rehearsal.json
+            rescue-output/loader.config
+            rescue-output/loader-verification.json
+            rescue-output/boot-policy-tests.txt

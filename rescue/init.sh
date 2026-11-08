@@ -19,7 +19,17 @@ mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /tmp || fail tmp
 mount -t tmpfs -o mode=755,nosuid,nodev tmpfs /var || fail var
 mount -t tmpfs -o mode=700,nosuid,nodev tmpfs /root || fail root
 mkdir -p /var/log /var/tmp /run/lock
-/sbin/n1-rescue protect > /run/protection.json 2>/run/protection-error.txt || fail protection
+# Allow bounded asynchronous USB/MMC discovery; never mount anything while waiting.
+protected=0
+for attempt in $(seq 1 30); do
+    /bin/busybox mdev -s || fail mdev
+    if /sbin/n1-rescue protect > /run/protection.json 2>/run/protection-error.txt; then
+        protected=1
+        break
+    fi
+    sleep 1
+done
+[ "$protected" = 1 ] || fail protection
 # The boot partition is derived from the verified USB root, never an MMC guess.
 /sbin/n1-rescue mount-boot || fail boot
 mkdir -m 700 /root/.ssh
