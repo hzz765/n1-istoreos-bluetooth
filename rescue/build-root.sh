@@ -23,13 +23,20 @@ cp -a rescue-work/original-root/lib/firmware "$ROOT/lib/"
 # OpenWrt flattens builtin names. kmod 30 rejects a leading digit; its
 # builtin index uses only the basename, so add a conventional metadata prefix.
 cp "$ROOT/lib/modules/6.6.144/modules.builtin" rescue-work/modules.builtin.openwrt
-sed -i 's|^|kernel/|' "$ROOT/lib/modules/6.6.144/modules.builtin"
+python3 - "$ROOT/lib/modules/6.6.144/modules.builtin" <<'PYBUILTIN'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+lines = p.read_text().splitlines()
+assert lines and all(line and '/' not in line and line.endswith('.ko') for line in lines)
+p.write_text(''.join('kernel/' + line + '\n' for line in lines))
+PYBUILTIN
 chroot "$ROOT" depmod -a 6.6.144
 # Resolve required modular drivers without loading anything into the CI host kernel.
 for driver in fuse uas; do
   chroot "$ROOT" modprobe --set-version 6.6.144 --show-depends "$driver" > "rescue-work/$driver-dependencies.txt"
   grep -Eq "^insmod /lib/modules/6\.6\.144/$driver\.ko[[:space:]]*$" "rescue-work/$driver-dependencies.txt"
 done
+chroot "$ROOT" modprobe --set-version 6.6.144 --show-depends 8021q | grep -Eq '^builtin 8021q[[:space:]]*$'
 install -m 755 rescue/init.sh "$ROOT/sbin/n1-rescue-init"
 install -m 755 rescue/guard.py "$ROOT/sbin/n1-rescue"
 mkdir -p "$ROOT/boot" "$ROOT/run" "$ROOT/root" "$ROOT/var" "$ROOT/tmp" "$ROOT/proc" "$ROOT/sys" "$ROOT/dev"
