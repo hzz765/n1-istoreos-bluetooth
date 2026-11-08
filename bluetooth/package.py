@@ -111,7 +111,7 @@ def finish():
     O.mkdir(exist_ok=False)
     with disk.open('rb') as src,(O/'n1-bluetooth.img.gz').open('wb') as dst:
         with gzip.GzipFile(filename='',mode='wb',fileobj=dst,mtime=0) as gz: shutil.copyfileobj(src,gz)
-    for name in ['loader.config','loader-verification.json','entry-tests.txt','boot-policy-tests.txt','module-hashes.json','guard-tests.txt','mount-help.txt','blkid-help.txt']:shutil.copyfile(W/name,O/name)
+    for name in ['loader.config','loader-verification.json','entry-tests.txt','boot-policy-tests.txt','module-hashes.json','guard-tests.txt','mount-help.txt','blkid-help.txt','pivot-help.txt']:shutil.copyfile(W/name,O/name)
     write(O/'verification.txt','STATIC CHECKS PASSED; HARDWARE BLUETOOTH/ROLLBACK NOT YET VERIFIED\nBase run 42432191825; base SHA256 '+BASE_SHA+'\nKernel/modules byte-identical; source loader has no MMC/NET/persistent environment.\nUSB-only preformatted overlay, no internal MMC controller; fail-closed preinit.\nRoot PARTUUID '+sig+'-02\nOverlay UUID '+(W/'overlay-uuid').read_text()+'\nUSB only. Never upload to firmware update. Public key must be installed locally.\n')
     shutil.copyfile('bluetooth/README.md', O/'README.md')
     shutil.copyfile(B/'kernel.config', O/'kernel.config')

@@ -48,7 +48,8 @@ jobs:
           for script in /lib/n1-bt-guard.sh /usr/sbin/mount_root /usr/sbin/n1-bt-check; do
             sudo chroot rescue-work/root /tmp/qemu /bin/busybox sh -n "$script"
           done
-          sudo chroot rescue-work/root /tmp/qemu /bin/busybox --list | grep -x pivot_root
+          sudo chroot rescue-work/root /tmp/qemu /bin/busybox pivot_root --help 2>&1 | sudo tee rescue-work/pivot-help.txt
+          grep -F 'Usage: pivot_root' rescue-work/pivot-help.txt
           sudo rm rescue-work/root/tmp/qemu
       - name: Verify vendor entry including malformed loader cases
         run: |
@@ -80,3 +81,4 @@ jobs:
             bluetooth-output/README.md
             bluetooth-output/kernel.config
             bluetooth-output/build-source.txt
+            bluetooth-output/pivot-help.txt
