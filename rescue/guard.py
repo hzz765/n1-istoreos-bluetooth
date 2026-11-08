@@ -6,6 +6,7 @@ Device inventories and backups are private runtime outputs, never build inputs.
 """
 import argparse
 import datetime
+import fcntl
 import hashlib
 import json
 import os
@@ -279,6 +280,10 @@ def main():
     p.add_argument('--expect-emmc-bytes', required=True, type=int)
     args = parser.parse_args()
     check(os.geteuid() == 0, 'Root required')
+    # Shared with normal poweroff: refuse shutdown while backup/mount is active.
+    operation_lock = open('/run/n1-backup.lock', 'a')
+    fcntl.flock(operation_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    check(not Path('/run/n1-shutting-down').exists(), 'Shutdown already started')
     if args.command == 'protect':
         main_device, devices = guard(protect=True)
         print(json.dumps({'emmc': main_device, 'read_only': devices}))

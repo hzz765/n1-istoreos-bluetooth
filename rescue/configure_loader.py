@@ -46,7 +46,9 @@ else:
     for name in disabled:
         assert config.get('CONFIG_' + name) != 'y', 'Unsafe loader config enabled: ' + name
     env_backends = {k for k,v in config.items() if k.startswith('CONFIG_ENV_IS_') and v == 'y'}
-    assert env_backends == {'CONFIG_ENV_IS_NOWHERE'}, env_backends
+    # ENV_IS_DEFAULT is the upstream helper selecting NOWHERE when no backend exists.
+    assert env_backends <= {'CONFIG_ENV_IS_NOWHERE', 'CONFIG_ENV_IS_DEFAULT'}, env_backends
+    assert 'CONFIG_ENV_IS_NOWHERE' in env_backends
     assert config['CONFIG_DEFAULT_DEVICE_TREE'] == '"amlogic/meson-gxl-s905d-phicomm-n1"'
     assert config['CONFIG_WDT_MESON_GXBB'] == 'y'
     symbols = subprocess.check_output(['aarch64-linux-gnu-nm', str(ROOT / 'u-boot')], text=True)

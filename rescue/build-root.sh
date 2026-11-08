@@ -25,7 +25,7 @@ install -m 755 rescue/init.sh "$ROOT/sbin/n1-rescue-init"
 install -m 755 rescue/guard.py "$ROOT/sbin/n1-rescue"
 mkdir -p "$ROOT/boot" "$ROOT/run" "$ROOT/root" "$ROOT/var" "$ROOT/tmp" "$ROOT/proc" "$ROOT/sys" "$ROOT/dev"
 printf 'N1 offline read-only backup rescue v1\n' > "$ROOT/etc/n1-rescue"
-printf '::shutdown:/bin/umount /run/backup\n::shutdown:/bin/sync\n' > "$ROOT/etc/inittab"
+printf '::shutdown:/bin/sync\n' > "$ROOT/etc/inittab"
 # Root has no password credential; Dropbear permits ONLY key authentication (-s).
 # Keys are supplied privately on the USB boot partition; none are built in.
 sed -i 's/^root:[^:]*:/root::/' "$ROOT/etc/shadow"
@@ -40,8 +40,10 @@ chroot "$ROOT" /bin/busybox --list | grep -qx mdev
 chroot "$ROOT" /bin/busybox --list | grep -qx init
 chroot "$ROOT" /bin/sh -ec 'partclone.ext4 --version; partclone.chkimg --version; ntfs-3g --version'
 chroot "$ROOT" /usr/bin/python3 -m py_compile /sbin/n1-rescue
-printf '#!/bin/busybox sh\nexec /bin/busybox poweroff "$@"\n' > "$ROOT/sbin/poweroff"
-chmod 755 "$ROOT/sbin/poweroff"
+install -m 755 rescue/poweroff.py "$ROOT/sbin/poweroff"
+cp rescue/test_poweroff.py "$ROOT/tmp/test_poweroff.py"
+chroot "$ROOT" python3 /tmp/test_poweroff.py
+rm "$ROOT/tmp/test_poweroff.py"
 python3 rescue/rehearse.py "$ROOT"
 rm -f "$ROOT/usr/bin/qemu-aarch64-static"
 echo 'Rescue tools executed successfully under ARM64 emulation.'
