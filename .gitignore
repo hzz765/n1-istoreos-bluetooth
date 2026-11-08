@@ -19,3 +19,8 @@
 !rescue/*.c
 !rescue/*.h
 !rescue/README.md
+!bluetooth/
+!bluetooth/*.py
+!bluetooth/*.sh
+!bluetooth/README.md
+!.github/workflows/bluetooth.yml

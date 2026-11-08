@@ -1,0 +1,76 @@
+name: N1 isolated Bluetooth USB repack
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: n1-bluetooth
+  cancel-in-progress: false
+jobs:
+  package:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Test safety guards and install packaging tools
+        run: |
+          set -euo pipefail
+          python3 bluetooth/test_guard.py | tee guard-tests.txt
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools device-tree-compiler u-boot-tools dosfstools mtools util-linux e2fsprogs qemu-user-static gcc-aarch64-linux-gnu bison flex libssl-dev libgnutls28-dev python3-setuptools swig python3-dev bc
+          df -h .
+      - name: Download pinned matching kernel and userspace
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 42432191825
+          name: n1-usb-test-42432191825
+          path: base-artifact
+      - name: Prepare isolated root and fresh USB overlay
+        run: |
+          set -euo pipefail
+          sudo python3 bluetooth/run_stage.py prepare python3 bluetooth/package.py prepare
+          sudo cp guard-tests.txt rescue-work/guard-tests.txt
+      - name: Inspect real ARM64 userspace command support
+        run: |
+          set -euo pipefail
+          sudo cp /usr/bin/qemu-aarch64-static rescue-work/root/tmp/qemu
+          sudo chroot rescue-work/root /tmp/qemu /usr/bin/mount --help | tee rescue-work/mount-help.txt
+          grep -F -- '--move' rescue-work/mount-help.txt
+          sudo chroot rescue-work/root /tmp/qemu /usr/sbin/blkid --help | tee rescue-work/blkid-help.txt
+          grep -F -- 'value' rescue-work/blkid-help.txt
+          sudo chroot rescue-work/root /tmp/qemu /bin/busybox --list | grep -x pivot_root
+          sudo rm rescue-work/root/tmp/qemu
+      - name: Verify vendor entry including malformed loader cases
+        run: |
+          set -euo pipefail
+          sudo chown -R "$USER" rescue-work
+          python3 rescue/test_entry.py | tee rescue-work/entry-tests.txt
+      - name: Build source-based USB-only loader
+        run: python3 bluetooth/run_stage.py loader bash rescue/build-loader.sh
+      - name: Package and inspect actual image bytes
+        run: sudo python3 bluetooth/run_stage.py package python3 bluetooth/package.py finish
+      - name: Upload checked public files only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: n1-bluetooth-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            bluetooth-output/n1-bluetooth.img.gz
+            bluetooth-output/SHA256SUMS
+            bluetooth-output/verification.txt
+            bluetooth-output/loader.config
+            bluetooth-output/loader-verification.json
+            bluetooth-output/entry-tests.txt
+            bluetooth-output/boot-policy-tests.txt
+            bluetooth-output/module-hashes.json
+            bluetooth-output/guard-tests.txt
+            bluetooth-output/mount-help.txt
+            bluetooth-output/blkid-help.txt
+            bluetooth-output/README.md
+            bluetooth-output/kernel.config
+            bluetooth-output/build-source.txt

@@ -59,10 +59,9 @@ static int load_verified(unsigned int disk, int dtb)
 
 static void boot_kernel(void)
 {
-    if (env_set("bootargs", "console=ttyAML0,115200n8 console=tty1 no_console_suspend "
-                "root=PARTUUID=" N1_ROOT_PARTUUID " ro rootwait panic=0 init=/sbin/n1-rescue-init"))
+    if (env_set("bootargs", N1_BOOTARGS))
         return;
-    puts("N1 stage E: entering Linux; root is USB, read-only\n");
+    puts("N1 stage E: entering Linux; verified USB root\n");
     run_command("booti 0x08080000 - 0x08008000", 0);
 }
 
