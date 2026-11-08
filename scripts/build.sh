@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=$(pwd)
-MODE=${1:?probe, baseline or usb-test required}
+MODE=${1:?probe, baseline, usb-test or usb-diagnostic required}
 STAGE=${2:-all}
 mkdir -p public-artifacts
 exec > >(tee -a public-artifacts/build.log) 2>&1
 snapshot() { echo "Stage: ${1:-start}"; date -u; df -h .; df -i .; }
 if [[ "$MODE" == probe ]]; then snapshot probe; exit 0; fi
-[[ "$MODE" == baseline || "$MODE" == usb-test ]]
+[[ "$MODE" == baseline || "$MODE" == usb-test || "$MODE" == usb-diagnostic ]]
+is_usb() { [[ "$MODE" == usb-test || "$MODE" == usb-diagnostic ]]; }
 case "$STAGE" in all|prepare|download|tools|toolchain|kernel|firmware|verify) ;; *) exit 2;; esac
 # Independent of compiler slots: quiet unless the remaining disk is low.
 python3 "$ROOT/scripts/space_guard.py" "$ROOT" &
@@ -39,7 +40,7 @@ prepare() {
   cp "$ROOT/configs/24.10-feeds.buildinfo" feeds.conf
   ./scripts/feeds update -a
   ./scripts/feeds install -a
-  if [[ "$MODE" == usb-test ]]; then
+  if is_usb; then
     USB_SIGNATURE=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
     [[ "$USB_SIGNATURE" != 00000000 && "$USB_SIGNATURE" != 1234abcd ]]
     printf '%s\n' "$USB_SIGNATURE" > "$ROOT/usb-signature.txt"
@@ -51,12 +52,20 @@ prepare() {
       sed -i "/^CONFIG_PACKAGE_${pkg}=/d; /^# CONFIG_PACKAGE_${pkg} is not set$/d" .config
       printf 'CONFIG_PACKAGE_%s=y\n' "$pkg" >> .config
     done
+    if [[ "$MODE" == usb-diagnostic ]]; then
+      python3 "$ROOT/diagnostics/build_integration.py" install "$PWD"
+      sed -i "/^CONFIG_PACKAGE_coreutils-timeout=/d; /^# CONFIG_PACKAGE_coreutils-timeout is not set$/d" .config
+      printf 'CONFIG_PACKAGE_coreutils-timeout=y\n' >> .config
+    fi
     mkdir -p files/lib/firmware/brcm files/etc
     curl --fail --location --retry 3 https://raw.githubusercontent.com/armbian/firmware/5d685ad233b4dfd03a4d025fa0061f6b0f850cb3/BCM4345C0.hcd -o files/lib/firmware/brcm/BCM4345C0.hcd
     echo '8bbf245399e66f68304ba0f9185159dd1d557c48b534f2e7be75e2e0f4cb4a9a  files/lib/firmware/brcm/BCM4345C0.hcd' | sha256sum -c -
     printf 'N1 Bluetooth USB test\n' > files/etc/n1-bt-usb-test
   fi
   make defconfig
+  if [[ "$MODE" == usb-diagnostic ]]; then
+    grep -qx 'CONFIG_PACKAGE_coreutils-timeout=y' .config
+  fi
   cp .config "$ROOT/public-artifacts/build.config"
   git rev-parse HEAD > "$ROOT/public-artifacts/source-commit.txt"
   cp feeds.conf "$ROOT/public-artifacts/feeds.lock"
@@ -69,7 +78,7 @@ fi
 [[ "$(cat "$ROOT/prepared-mode.txt")" == "$MODE" ]]
 cd "$ROOT/source"
 MAKE_ARGS=()
-if [[ "$MODE" == usb-test ]]; then
+if is_usb; then
   USB_SIGNATURE=$(cat "$ROOT/usb-signature.txt")
   [[ "$USB_SIGNATURE" =~ ^[0-9a-f]{8}$ ]]
   MAKE_ARGS+=("IMG_PART_SIGNATURE=$USB_SIGNATURE")
@@ -84,16 +93,23 @@ run_build_stage() {
       fi ;;
     tools) stage tools make tools/install -j4 V=s "${MAKE_ARGS[@]}" ;;
     toolchain) stage toolchain make toolchain/install -j4 V=s "${MAKE_ARGS[@]}" ;;
-    kernel) stage kernel make target/linux/compile -j4 V=s "${MAKE_ARGS[@]}" ;;
+    kernel)
+      if [[ "$MODE" == usb-diagnostic ]]; then
+        stage kernel-prepare make target/linux/prepare -j4 V=s "${MAKE_ARGS[@]}"
+        kernels=(build_dir/target-*/linux-amlogic_meson/linux-6.6.144)
+        [[ ${#kernels[@]} -eq 1 && -d "${kernels[0]}" ]]
+        stage diagnostic-source-attestation python3 "$ROOT/diagnostics/build_integration.py" attest "$PWD/${kernels[0]}" "$ROOT/public-artifacts/diagnostic-source.json"
+      fi
+      stage kernel make target/linux/compile -j4 V=s "${MAKE_ARGS[@]}" ;;
     firmware)
-      [[ "$MODE" == usb-test ]]
+      is_usb
       stage firmware make -j4 V=s "${MAKE_ARGS[@]}" ;;
     verify) stage verify python3 "$ROOT/scripts/verify.py" "$MODE" "$ROOT" ;;
   esac
 }
 if [[ "$STAGE" == all ]]; then
   for part in download tools toolchain kernel; do run_build_stage "$part"; done
-  if [[ "$MODE" == usb-test ]]; then run_build_stage firmware; fi
+  if is_usb; then run_build_stage firmware; fi
   run_build_stage verify
 else
   run_build_stage "$STAGE"

@@ -1,4 +1,6 @@
 import zlib
+import json
+import os
 import hashlib
 import pathlib
 import shutil
@@ -33,6 +35,11 @@ config = (kernel / '.config').read_text()
 shutil.copyfile(kernel / '.config', out / 'kernel.config')
 abi = (kernel / '.vermagic').read_text().strip()
 report = [f'mode={mode}', f'generated_kernel_abi={abi}']
+diagnostic_manifest = None
+if mode == 'usb-diagnostic':
+    sys.path.insert(0, str(root / 'diagnostics'))
+    from build_integration import attest
+    attest(kernel, out / 'diagnostic-source.json')
 if mode == 'baseline':
     report.append('Compare this ABI and kernel.config with the locally retained original system inventory.')
 else:
@@ -131,6 +138,33 @@ else:
         report.append(f'module_vermagic={next(iter(vermagics))}')
         for binary in ['bluetoothctl', 'bluetoothd', 'btmgmt']:
             assert (fs / 'usr/bin' / binary).is_file(), binary
+        if mode == 'usb-diagnostic':
+            assert (fs / 'etc/n1-bt-diagnostic').is_file()
+            collector = fs / 'usr/sbin/n1-bt-collect'
+            assert collector.is_file() and collector.stat().st_mode & 0o111
+            collector_hash = hashlib.sha256(collector.read_bytes()).hexdigest()
+            assert collector_hash == hashlib.sha256((root/'diagnostics/collect.sh').read_bytes()).hexdigest()
+            timeout_bin = fs/'usr/libexec/timeout-coreutils'
+            assert timeout_bin.is_file() and not timeout_bin.is_symlink(), 'GNU timeout ELF missing'
+            timeout_link = fs/'usr/bin/timeout'
+            assert timeout_link.is_symlink() and os.readlink(timeout_link) in ['/usr/libexec/timeout-coreutils', '../libexec/timeout-coreutils'], 'GNU timeout alternative missing'
+            assert (fs / 'usr/bin/btmon').is_file(), 'btmon missing'
+            assert b'N1DIAG termios' in (boot/'kernel.img').read_bytes(), 'UART kernel diagnostic missing'
+            assert b'N1DIAG controller-baud' in modules['hci_uart'].read_bytes(), 'Bluetooth module diagnostic missing'
+            diagnostic_manifest = {
+                'schema': 1, 'mode': 'usb-diagnostic',
+                'source_commit': (out/'source-commit.txt').read_text().strip(),
+                'workflow_commit': subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),
+                'image_sha256': hashlib.sha256(images[0].read_bytes()).hexdigest(),
+                'kernel_config_sha256': hashlib.sha256((out/'kernel.config').read_bytes()).hexdigest(),
+                'patch_sha256': hashlib.sha256((root/'diagnostics/kernel-observe.patch').read_bytes()).hexdigest(),
+                'collector_sha256': collector_hash,
+                'kernel_sha256': hashlib.sha256((boot/'kernel.img').read_bytes()).hexdigest(),
+                'dtb_sha256': hashlib.sha256(dtb.read_bytes()).hexdigest(),
+                'modules': {str(p.relative_to(fs)): hashlib.sha256(p.read_bytes()).hexdigest()
+                            for p in sorted((fs/'lib/modules').rglob('*.ko'))},
+            }
+            report.append('PASS: diagnostic source attestation, ARM kernel/module markers, collector and tools')
         report.append('PASS: kernel options, packed modules, HCD, BlueZ, eMMC-disabled DTB, boot scripts')
     finally:
         if mounted:
@@ -140,6 +174,8 @@ else:
     shutil.copyfile(images[0], temporary_image)
     temporary_image.replace(out / 'n1-usb-test.img.gz')
     report.append('HARDWARE TEST PENDING. Boot-chain, backup, PARTUUID collision and rollback gates require local verification.')
+if diagnostic_manifest is not None:
+    (out/'diagnostic-build.json').write_text(json.dumps(diagnostic_manifest, indent=2, sort_keys=True)+'\n')
 (out / 'verification.txt').write_text('\n'.join(report) + '\n')
 files = [p for p in out.iterdir() if p.is_file() and p.name not in ['SHA256SUMS', 'build.log']]
 (out / 'SHA256SUMS').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in sorted(files)))

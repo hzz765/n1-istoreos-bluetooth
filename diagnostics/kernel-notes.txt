@@ -1,0 +1,39 @@
+N1 diagnostic-only kernel patch (Linux 6.6.144)
+
+This patch is connected only to diagnostic.yml through usb-diagnostic full build.
+No new firmware is approved for deployment. Existing repack preserves the old
+kernel/modules and cannot install this instrumentation. Future integration
+requires a coherent rebuild and final image/isolation review.
+
+Apply helper defaults to --check and verifies two exact pristine file hashes.
+python3 diagnostics/kernel_apply.py /path/to/linux-6.6.144
+Explicit --apply modifies only that local source tree. An OpenWrt patched tree
+with different file bytes must be reviewed/rebased, not forced through this gate.
+
+Logs: N1DIAG initializes/selected init speed, requested operational baud and
+vendor-command return before later overwrite, host serdev-reported baud,
+firmware finalize result, hostwake IRQ request/sleep-path result and PM build.
+Meson termios logs selected baud, input clock, REG5, control, flags and a locked
+copy of current uart_icount. Serial console ports are not logged. No per-byte
+logging, timers, hardware writes or changed TX/RX paths are added. REG5 is read
+only; RX FIFO is not read. printk is outside UART spinlock.
+
+Limits: software-reported baud is not an electrical measurement. Existing
+meson_uart parity-error path increments icount.frame, NOT icount.parity; parity=0
+cannot exclude parity errors. Counters count driver handling, not confirmation
+that bytes reached the controller. CTS get_mctrl is synthetic. The termios
+snapshot occurs at configuration time; the separate collector must poll proc
+UART stats for failure-time deltas. No kernel-timeout callback was added: it
+would require auditing HCI core lifetime/context/locking and is intentionally
+outside this small observational patch. btmon + timestamped polling can still
+miss pre-capture initialization packets; kernel logs preserve setup results.
+
+The patch preserves baud call count, original errors/continuation, sleep gating,
+HCD, flow control, DT/GPIO and eMMC isolation. Logs can perturb timing slightly.
+
+Tests: exact source hashes, apply/reverse byte equality, repeat-apply rejection,
+source modification/symlink rejection, restricted patch paths, unchanged UART
+data path and write count, logging outside lock, preserved PM return behavior.
+N1_DIAG_SOURCE_DIR may point to a directory containing the two pristine C files.
+Run python3 diagnostics/test_kernel.py. This is NOT an ARM kernel compile test.
+Full target compile and real hardware validation have not been performed.

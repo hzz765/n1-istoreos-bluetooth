@@ -1,0 +1,8 @@
+{
+  "version": "6.6.144",
+  "base": "https://raw.githubusercontent.com/gregkh/linux/v6.6.144/",
+  "sha256": {
+    "drivers/bluetooth/hci_bcm.c": "8c1ff3be4a11ba20e32ee95defe80362c50d69124afbf8360eb303598b4c5fbe",
+    "drivers/tty/serial/meson_uart.c": "736e2246d594255b04865af6ddd70b4a1383531ef98c6a05abc83c9adc8899bc"
+  }
+}

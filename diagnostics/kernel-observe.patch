@@ -1,0 +1,129 @@
+--- a/drivers/bluetooth/hci_bcm.c
++++ b/drivers/bluetooth/hci_bcm.c
+@@ -169,10 +169,19 @@
+ 
+ static inline void host_set_baudrate(struct hci_uart *hu, unsigned int speed)
+ {
+-	if (hu->serdev)
+-		serdev_device_set_baudrate(hu->serdev, speed);
+-	else
++	if (hu->serdev) {
++		unsigned int actual;
++
++		actual = serdev_device_set_baudrate(hu->serdev, speed);
++		bt_dev_info(hu->hdev,
++			    "N1DIAG host-baud requested=%u reported=%u (not measured)",
++			    speed, actual);
++	} else {
+ 		hci_uart_set_baudrate(hu, speed);
++		bt_dev_info(hu->hdev,
++			    "N1DIAG host-baud requested=%u ldisc reported=unknown",
++			    speed);
++	}
+ }
+ 
+ static int bcm_set_baudrate(struct hci_uart *hu, unsigned int speed)
+@@ -584,14 +593,22 @@
+ 	bool fw_load_done = false;
+ 	bool use_autobaud_mode = (bcm->dev ? bcm->dev->use_autobaud_mode : 0);
+ 	unsigned int speed;
+-	int err;
++	int err, diag_irq_result;
+ 
+ 	bt_dev_dbg(hu->hdev, "hu %p", hu);
+ 
+ 	hu->hdev->set_diag = bcm_set_diag;
+ 	hu->hdev->set_bdaddr = btbcm_set_bdaddr;
+ 
++	bt_dev_info(hu->hdev,
++		    "N1DIAG setup serdev=%u init=%u oper=%u autobaud=%u hostwake_irq=%d",
++		    (unsigned int)!!hu->serdev,
++		    bcm->dev ? bcm->dev->init_speed : 0,
++		    bcm->dev ? bcm->dev->oper_speed : 0,
++		    (unsigned int)use_autobaud_mode, bcm->dev ? bcm->dev->irq : -1);
+ 	err = btbcm_initialize(hu->hdev, &fw_load_done, use_autobaud_mode);
++	bt_dev_info(hu->hdev, "N1DIAG initialize result=%d firmware_loaded=%u", err,
++		    (unsigned int)fw_load_done);
+ 	if (err)
+ 		return err;
+ 
+@@ -606,6 +623,7 @@
+ 	else
+ 		speed = 0;
+ 
++	bt_dev_info(hu->hdev, "N1DIAG selected init-speed=%u", speed);
+ 	if (speed)
+ 		host_set_baudrate(hu, speed);
+ 
+@@ -620,7 +638,11 @@
+ 		speed = 0;
+ 
+ 	if (speed) {
++		bt_dev_info(hu->hdev, "N1DIAG controller-baud begin requested=%u", speed);
+ 		err = bcm_set_baudrate(hu, speed);
++		bt_dev_info(hu->hdev,
++			    "N1DIAG controller-baud requested=%u result=%d",
++			    speed, err);
+ 		if (!err)
+ 			host_set_baudrate(hu, speed);
+ 	}
+@@ -636,6 +658,8 @@
+ 	}
+ 
+ 	err = btbcm_finalize(hu->hdev, &fw_load_done, use_autobaud_mode);
++	bt_dev_info(hu->hdev, "N1DIAG finalize result=%d firmware_loaded=%u", err,
++		    (unsigned int)fw_load_done);
+ 	if (err)
+ 		return err;
+ 
+@@ -646,8 +670,15 @@
+ 	if (test_bit(HCI_QUIRK_INVALID_BDADDR, &hu->hdev->quirks))
+ 		set_bit(HCI_QUIRK_USE_BDADDR_PROPERTY, &hu->hdev->quirks);
+ 
+-	if (!bcm_request_irq(bcm))
++	diag_irq_result = bcm_request_irq(bcm);
++	bt_dev_info(hu->hdev,
++		    "N1DIAG hostwake request-result=%d sleep-path=%u pm-built=%u",
++		    diag_irq_result, (unsigned int)!diag_irq_result,
++		    (unsigned int)IS_ENABLED(CONFIG_PM));
++	if (!diag_irq_result) {
+ 		err = bcm_setup_sleep(hu);
++		bt_dev_info(hu->hdev, "N1DIAG sleep-setup result=%d", err);
++	}
+ 
+ 	return err;
+ }
+--- a/drivers/tty/serial/meson_uart.c
++++ b/drivers/tty/serial/meson_uart.c
+@@ -339,7 +339,8 @@
+ {
+ 	unsigned int cflags, iflags, baud;
+ 	unsigned long flags;
+-	u32 val;
++	struct uart_icount diag_count;
++	u32 val, diag_reg5, diag_cflags;
+ 
+ 	spin_lock_irqsave(&port->lock, flags);
+ 
+@@ -405,7 +406,21 @@
+ 					    AML_UART_FRAME_ERR;
+ 
+ 	uart_update_timeout(port, termios->c_cflag, baud);
++	/* REG5 is configuration, not the destructive RX FIFO register. */
++	diag_reg5 = readl(port->membase + AML_UART_REG5);
++	diag_cflags = termios->c_cflag;
++	diag_count = port->icount;
+ 	spin_unlock_irqrestore(&port->lock, flags);
++
++	/* Outside the UART lock: printk may itself use a serial console. */
++	if (uart_console(port))
++		return;
++	dev_info(port->dev,
++		 "N1DIAG termios line=%u baud=%u uartclk=%u reg5=%#x control=%#x cflags=%#x hardflow=%u tx=%u rx=%u frame=%u parity=%u overrun=%u brk=%u (software counters; CTS not measured)\n",
++		 port->line, baud, port->uartclk, diag_reg5, val, diag_cflags,
++		 (unsigned int)!!(port->flags & UPF_HARD_FLOW),
++		 diag_count.tx, diag_count.rx, diag_count.frame, diag_count.parity,
++		 diag_count.overrun, diag_count.brk);
+ }
+ 
+ static int meson_uart_verify_port(struct uart_port *port,

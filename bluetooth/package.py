@@ -5,14 +5,19 @@ sys.path.insert(0, str(Path('rescue').resolve()))
 from package import checksum, extract_region, run, script_text, BASE_SHA
 from entry_script import make_entry
 import gzip, json, secrets, shutil, struct, subprocess, uuid, zlib
+sys.path.insert(0, str(Path('diagnostics').resolve()))
+import image_checks as diagnostic
 W=Path('rescue-work'); B=Path('base-artifact'); O=Path('bluetooth-output')
 def call(*args): subprocess.run([str(x) for x in args],check=True)
 def write(path,text,mode=0o644):
     path.parent.mkdir(parents=True,exist_ok=True); path.write_text(text); path.chmod(mode)
-def prepare():
-    assert checksum(B/'n1-usb-test.img.gz')==BASE_SHA
-    assert checksum(B/'kernel.config')=='3185c23daa3b69ce80e16b5d78bf7c6af8befe838d410b3b8185359d12b800cc'
+def prepare(diagnostic_mode=False):
+    provenance=diagnostic.manifest(B) if diagnostic_mode else None
+    if not diagnostic_mode:
+        assert checksum(B/'n1-usb-test.img.gz')==BASE_SHA
+        assert checksum(B/'kernel.config')=='3185c23daa3b69ce80e16b5d78bf7c6af8befe838d410b3b8185359d12b800cc'
     W.mkdir(exist_ok=False)
+    if provenance: write(W/'diagnostic-build.json',json.dumps(provenance,sort_keys=True))
     sig=secrets.token_hex(4)
     assert sig not in ['00000000','ffffffff','1234abcd']
     write(W/'signature.txt',sig+'\n'); write(W/'boot-profile.json',json.dumps({'mode':'bluetooth'}))
@@ -27,6 +32,10 @@ def prepare():
     for name in ['kernel.img','amlogic.dtb']: call('mcopy','-i',W/'boot.fat','::/'+name,boot/name)
     call('unsquashfs','-d',W/'root',W/'root.squashfs')
     root=W/'root'
+    if provenance:
+        diagnostic.inspect(root,boot,provenance)
+        diagnostic.remove_nbd_autoload(root)
+        diagnostic.verify_no_nbd_autoload(root)
     hashes={str(p.relative_to(root)):checksum(p) for p in (root/'lib/modules').rglob('*') if p.is_file() and not p.is_symlink()}
     write(W/'module-hashes.json',json.dumps(hashes,sort_keys=True))
     write(W/'kernel-sha.txt',checksum(boot/'kernel.img'))
@@ -59,7 +68,7 @@ def prepare():
     write(root/'etc/config/fstab',"config global\n"+''.join(" option %s '0'\n"%x for x in ['auto_swap','auto_mount','anon_swap','anon_mount','port_mount']))
     write(root/'etc/rc.local', '#!/bin/sh\nexit 0\n', 0o755)
     write(root/'etc/crontabs/root', '')
-    write(root/'etc/n1-bt-usb-test', 'Isolated Bluetooth USB; base run 42432191825; '+sig+'-02\n')
+    write(root/'etc/n1-bt-usb-test', ('Isolated diagnostic Bluetooth USB; coherent build '+provenance['workflow_commit'] if provenance else 'Isolated Bluetooth USB; base run 42432191825')+'; '+sig+'-02\n')
     shutil.copyfile('bluetooth/check.sh',root/'usr/sbin/n1-bt-check'); (root/'usr/sbin/n1-bt-check').chmod(0o755)
     write(root/'etc/config/wireless','')
     write(root/'etc/config/dhcp','')
@@ -72,6 +81,12 @@ def prepare():
     print('Prepared isolated Bluetooth root and fresh USB-only overlay.')
 def finish():
     root=W/'root'; boot=W/'boot'; sig=(W/'signature.txt').read_text().strip()
+    provenance=json.loads((W/'diagnostic-build.json').read_text()) if (W/'diagnostic-build.json').exists() else None
+    if provenance:
+        assert provenance == diagnostic.manifest(B)
+        diagnostic.inspect(root,boot,provenance)
+        diagnostic.verify_no_nbd_autoload(root)
+        diagnostic.verify_target_report(root,W/'diagnostic-target-checks.json')
     assert checksum(boot/'kernel.img')==(W/'kernel-sha.txt').read_text()
     assert checksum(boot/'amlogic.dtb')==(W/'dtb-sha.txt').read_text()
     for name,h in json.loads((W/'module-hashes.json').read_text()).items(): assert checksum(root/name)==h,name
@@ -103,6 +118,10 @@ def finish():
         target=W/('readback-'+name); extract_region(disk,target,starts[i]*512,(W/name).stat().st_size);assert checksum(target)==checksum(W/name)
     call('unsquashfs','-d',W/'verified-root',W/'readback-test.squashfs')
     verified=W/'verified-root'
+    if provenance:
+        diagnostic.inspect(verified,boot,provenance)
+        diagnostic.verify_no_nbd_autoload(verified)
+        diagnostic.verify_target_report(verified,W/'diagnostic-target-checks.json')
     for p in ['lib/n1-bt-guard.sh','usr/sbin/mount_root','sbin/mount_root','lib/preinit/00_n1_guard','etc/config/network','etc/config/dropbear','etc/config/fstab']:
         assert checksum(verified/p)==checksum(root/p)
     for p,h in json.loads((W/'module-hashes.json').read_text()).items(): assert checksum(verified/p)==h
@@ -112,9 +131,11 @@ def finish():
     with disk.open('rb') as src,(O/'n1-bluetooth.img.gz').open('wb') as dst:
         with gzip.GzipFile(filename='',mode='wb',fileobj=dst,mtime=0) as gz: shutil.copyfileobj(src,gz)
     for name in ['loader.config','loader-verification.json','entry-tests.txt','boot-policy-tests.txt','module-hashes.json','guard-tests.txt','mount-help.txt','blkid-help.txt','pivot-help.txt']:shutil.copyfile(W/name,O/name)
-    write(O/'verification.txt','STATIC CHECKS PASSED; HARDWARE BLUETOOTH/ROLLBACK NOT YET VERIFIED\nBase run 42432191825; base SHA256 '+BASE_SHA+'\nKernel/modules byte-identical; source loader has no MMC/NET/persistent environment.\nUSB-only preformatted overlay, no internal MMC controller; fail-closed preinit.\nRoot PARTUUID '+sig+'-02\nOverlay UUID '+(W/'overlay-uuid').read_text()+'\nUSB only. Never upload to firmware update. Public key must be installed locally.\n')
+    write(O/'verification.txt','STATIC CHECKS PASSED; HARDWARE BLUETOOTH/ROLLBACK NOT YET VERIFIED\nBase '+(provenance['workflow_commit'] if provenance else 'run 42432191825')+'; base SHA256 '+(provenance['image_sha256'] if provenance else BASE_SHA)+'\nKernel/modules byte-identical; source loader has no MMC/NET/persistent environment.\nUSB-only preformatted overlay, no internal MMC controller; fail-closed preinit.\nRoot PARTUUID '+sig+'-02\nOverlay UUID '+(W/'overlay-uuid').read_text()+'\nUSB only. Never upload to firmware update. Public key must be installed locally.\n')
+    if provenance:
+        for name in ['diagnostic-build.json','diagnostic-target-checks.json']: shutil.copyfile(W/name,O/name)
     shutil.copyfile('bluetooth/README.md', O/'README.md')
     shutil.copyfile(B/'kernel.config', O/'kernel.config')
     write(O/'build-source.txt', run('git', 'rev-parse', 'HEAD')+'\n')
     write(O/'SHA256SUMS',''.join(checksum(p)+'  '+p.name+'\n' for p in sorted(O.iterdir())))
-if __name__=='__main__': {'prepare':prepare,'finish':finish}[sys.argv[1]]()
+if __name__=='__main__': {'prepare':prepare,'prepare-diagnostic':lambda:prepare(True),'finish':finish}[sys.argv[1]]()

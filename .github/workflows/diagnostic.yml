@@ -1,0 +1,178 @@
+name: N1 diagnostic ARM build
+run-name: N1 diagnostic / run ${{ github.run_number }}
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: n1-diagnostic
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    env:
+      BUILD_MODE: usb-diagnostic
+      CCACHE_MAXSIZE: 3GiB
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Record space and remove unused hosted tools
+        run: |
+          df -h
+          df -i
+          # Only disposable GitHub-hosted runner tool directories.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h
+          df -i
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev python3 python3-setuptools rsync swig unzip zlib1g-dev file wget curl patch xz-utils device-tree-compiler u-boot-tools squashfs-tools dosfstools mtools libelf-dev python3-pyelftools kmod util-linux bsdextrautils e2fsprogs qemu-user-static libgnutls28-dev python3-dev bc
+      - name: Run diagnostic source and failure-path tests
+        run: python3 diagnostics/ci_tests.py
+      - name: Prepare pinned source and configuration
+        run: setsid bash scripts/build.sh "$BUILD_MODE" prepare
+      # Only compiler outputs from public source; never cache the workspace or home.
+      - name: Restore compiler cache
+        id: compiler_cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: source/.ccache
+          key: n1-ccache-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu22-${{ hashFiles('configs/*', 'patches/*', 'scripts/build.sh', 'diagnostics/kernel-observe.patch') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            n1-ccache-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu22-${{ hashFiles('configs/*', 'patches/*', 'scripts/build.sh', 'diagnostics/kernel-observe.patch') }}-
+            n1-ccache-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu22-
+      - name: Restore public source archive cache
+        id: source_cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: download-cache
+          restore-keys: n1-sources-v1-
+          key: n1-sources-v1-${{ hashFiles('configs/*', 'scripts/build.sh', 'scripts/download_cache.py') }}
+      - name: Validate restored source archives
+        run: python3 scripts/download_cache.py restore
+      - name: Download verified sources
+        run: setsid bash scripts/build.sh "$BUILD_MODE" download
+      - name: Prepare bounded source archive cache
+        if: steps.source_cache.outputs.cache-hit != 'true'
+        run: python3 scripts/download_cache.py save
+      - name: Save public source archives
+        if: steps.source_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: download-cache
+          key: ${{ steps.source_cache.outputs.cache-primary-key }}
+      - name: Compile host tools including LLVM
+        run: setsid bash scripts/build.sh "$BUILD_MODE" tools
+      - name: Report compiler cache statistics
+        run: source/staging_dir/host/bin/ccache --show-stats
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/source/.ccache
+      # Save immediately after expensive host tools succeed, even if later firmware fails.
+      - name: Save compiler cache for later builds
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: source/.ccache
+          key: ${{ steps.compiler_cache.outputs.cache-primary-key }}
+      - name: Compile target toolchain
+        run: setsid bash scripts/build.sh "$BUILD_MODE" toolchain
+      - name: Compile Linux kernel
+        run: setsid bash scripts/build.sh "$BUILD_MODE" kernel
+      - name: Build USB firmware and packages
+        run: setsid bash scripts/build.sh "$BUILD_MODE" firmware
+      - name: Verify baseline or USB image
+        run: setsid bash scripts/build.sh "$BUILD_MODE" verify
+      - name: Install cross compiler after OpenWrt multilib stages finish
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Prepare freshly compiled diagnostic image for isolated packaging
+        run: |
+          set -euo pipefail
+          sudo git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          mkdir base-artifact
+          cp public-artifacts/n1-usb-test.img.gz public-artifacts/kernel.config public-artifacts/diagnostic-build.json public-artifacts/diagnostic-source.json base-artifact/
+          python3 bluetooth/test_guard.py 2>&1 | tee guard-tests.txt
+          sudo python3 bluetooth/run_stage.py prepare python3 bluetooth/package.py prepare-diagnostic
+          sudo cp guard-tests.txt rescue-work/guard-tests.txt
+      - name: Check actual ARM64 diagnostic tools and process termination
+        run: sudo python3 diagnostics/target_verify.py rescue-work/root rescue-work/diagnostic-target-checks.json
+      - name: Inspect real ARM64 mount tools
+        run: |
+          set -euo pipefail
+          sudo cp /usr/bin/qemu-aarch64-static rescue-work/root/tmp/qemu
+          sudo chroot rescue-work/root /tmp/qemu /usr/bin/mount --help | sudo tee rescue-work/mount-help.txt
+          grep -F -- '--move' rescue-work/mount-help.txt
+          sudo chroot rescue-work/root /tmp/qemu /usr/sbin/blkid --help | sudo tee rescue-work/blkid-help.txt
+          sudo cp --sparse=always rescue-work/overlay.ext4 rescue-work/root/tmp/blkid-probe.ext4
+          actual=$(sudo chroot rescue-work/root /tmp/qemu /usr/sbin/blkid -o value -s UUID /tmp/blkid-probe.ext4)
+          test "$actual" = "$(cat rescue-work/overlay-uuid)"
+          sudo rm rescue-work/root/tmp/blkid-probe.ext4
+          for script in /lib/n1-bt-guard.sh /usr/sbin/mount_root /usr/sbin/n1-bt-check; do
+            sudo chroot rescue-work/root /tmp/qemu /bin/busybox sh -n "$script"
+          done
+          sudo chroot rescue-work/root /tmp/qemu /bin/busybox pivot_root --help 2>&1 | sudo tee rescue-work/pivot-help.txt
+          grep -F 'Usage: pivot_root' rescue-work/pivot-help.txt
+          sudo rm rescue-work/root/tmp/qemu
+      - name: Verify legacy boot entry and malformed loaders
+        run: |
+          set -euo pipefail
+          sudo chown -R "$USER" rescue-work
+          python3 rescue/test_entry.py | tee rescue-work/entry-tests.txt
+      - name: Build source-based USB-only loader
+        run: python3 bluetooth/run_stage.py loader bash rescue/build-loader.sh
+      - name: Package and inspect final diagnostic image bytes
+        run: sudo python3 bluetooth/run_stage.py package python3 bluetooth/package.py finish
+      - name: Save final compiler cache
+        if: always() && steps.compiler_cache.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: source/.ccache
+          key: ${{ steps.compiler_cache.outputs.cache-primary-key }}-final
+      - name: Check public artifact text for credentials
+        if: always()
+        id: public_scan
+        run: python3 scripts/check_public.py
+      - name: Upload public build records even on failure
+        if: ${{ always() && steps.public_scan.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: n1-diagnostic-records-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            public-artifacts/build.log
+            public-artifacts/build.config
+            public-artifacts/kernel.config
+            public-artifacts/source-commit.txt
+            public-artifacts/feeds.lock
+            public-artifacts/verification.txt
+            public-artifacts/diagnostic-build.json
+            public-artifacts/diagnostic-source.json
+            public-artifacts/SHA256SUMS
+      - name: Upload final checked isolated USB image
+        if: ${{ success() && steps.public_scan.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: n1-diagnostic-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            bluetooth-output/n1-bluetooth.img.gz
+            bluetooth-output/SHA256SUMS
+            bluetooth-output/verification.txt
+            bluetooth-output/loader.config
+            bluetooth-output/loader-verification.json
+            bluetooth-output/entry-tests.txt
+            bluetooth-output/boot-policy-tests.txt
+            bluetooth-output/module-hashes.json
+            bluetooth-output/guard-tests.txt
+            bluetooth-output/mount-help.txt
+            bluetooth-output/blkid-help.txt
+            bluetooth-output/pivot-help.txt
+            bluetooth-output/README.md
+            bluetooth-output/kernel.config
+            bluetooth-output/build-source.txt
+            bluetooth-output/diagnostic-build.json
+            bluetooth-output/diagnostic-target-checks.json

@@ -1,0 +1,63 @@
+Independent diagnostic preparation review — 2026-11-08
+Reviewer: /root/diag_independent_review
+Verdict: PASS FOR LOCAL PREPARATION ONLY.
+This is not approval to deploy an image or a claim of a Bluetooth fix.
+
+Scope
+Read-only review of local source and tests; no N1/USB access, cloud build or
+firmware changes. Existing build/repack workflows remain unchanged.
+
+Kernel
+Exact Linux6.6.144 inputs are hash-checked. Only hci_bcm.c and meson_uart.c are
+patched. Baud hardware-call count and error continuation remain unchanged;
+the IRQ result has its own variable and does not replace the old err value.
+UART logs run outside the spinlock, skip serial consoles and do not add per-byte
+logging. The added REG5 read is configuration-only, not a destructive RX FIFO
+read. TX/RX paths and hardware writes are unchanged. HCD, DT/GPIO, flow control
+and eMMC isolation are untouched.
+Software baud/counters are not electrical measurements. The original driver's
+parity error path increments frame, so parity=0 does not exclude parity errors.
+
+Collector
+Requires isolation pass, tmpfs, adequate free space and GNU coreutils-timeout.
+Current USB image lacks this dependency: the script cannot be used there as-is.
+No automatic scan, power, pairing, service changes, mounting, writes to hardware
+or uploads. Output is private tmpfs with bounded capture time and file size.
+Fixed HCD hash is checked. Raw before/after kernel logs are retained; unreadable
+kernel log or missing setup/baud-result markers fail closed with evidence kept.
+The marker check accepts failure results: a baud failure is evidence, not a
+reason to hide the record. UART sampler failures, final snapshot failures,
+early exit, missing event data and unsupported timeout are incomplete.
+
+Independent tests
+python3 diagnostics/test_kernel.py -v: 5/5 PASS (0.185 seconds).
+python3 diagnostics/test_collect.py -v: 16/16 PASS (57.401 seconds).
+sh -n diagnostics/collect.sh: PASS.
+Collector tests use temporary fake Linux files and command stubs, never a real
+device. Coverage includes isolation, tmpfs/space, permissions, capture errors,
+missing UART/event/marker data, HCD mismatch, dmesg failure and mock-process
+TERM cleanup. Earlier 8-second test deadlines were too short for this Mac
+fixture environment; the final suite passed with adequate test deadlines.
+
+Limits and deployment gates
+complete=yes means basic bounded capture checks passed: exit/time, snoop header
+and nonempty event data, required kernel markers, snapshots and sampler. It is
+not full btsnoop record parsing, complete initialization HCI capture, all
+optional debugfs/logread data availability or proof of working Bluetooth.
+No full ARM target compilation, BusyBox-ash/GNU-timeout/real-btmon integration,
+physical UART measurement or hardware test has been performed. This review
+therefore approves only the local preparation package. A future coherent
+kernel/module/image build must verify dependency packaging, startup diagnostic
+records and eMMC isolation, followed by final-image and bounded-test review.
+Raw logs may contain nearby device information; they stay private. The explicit
+source-file allowlist excludes runtime captures and unrelated private files.
+
+Reviewed input SHA256 (review.txt excluded to avoid self-reference):
+b115859f5141ee5600e4ab20669b97e3e151fbbe997e689a157ecec97ad780a0  diagnostics/README.txt
+6accb35a5184a790b6b1057197cc082b8698549c1767511a21b9fc02cba950a8  diagnostics/collect.sh
+3f92d9c455551427a9bd72473370003b0cb9277a14bf77c275ac3aa29369e978  diagnostics/kernel-observe.patch
+61015b4fe8975044e828b9dda50f16fa24ec3c4cf1f8de71cd0b879dc6682e7a  diagnostics/kernel-sources.json
+c4e76834b73f1aef46f57ac9288f4d827b7ed0d069222aaef20cbc3cf7e9e8b7  diagnostics/kernel_apply.py
+0438440fa59deaca8b792b85338e70e03f1eb266347f519d9798017cbd4f1fcf  diagnostics/kernel-notes.txt
+335f402e53780a3d91d2a3051e1194790707e890cf873022024072a4dfe2a411  diagnostics/test_collect.py
+bfff203dfdfd634f4a58eb6e9369fcefed20ed8d72e31ae7dd202c0f7387e204  diagnostics/test_kernel.py
