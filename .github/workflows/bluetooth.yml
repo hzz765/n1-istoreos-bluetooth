@@ -18,7 +18,7 @@ jobs:
       - name: Test safety guards and install packaging tools
         run: |
           set -euo pipefail
-          python3 bluetooth/test_guard.py | tee guard-tests.txt
+          python3 bluetooth/test_guard.py 2>&1 | tee guard-tests.txt
           sudo apt-get update
           sudo apt-get install -y squashfs-tools device-tree-compiler u-boot-tools dosfstools mtools util-linux e2fsprogs qemu-user-static gcc-aarch64-linux-gnu bison flex libssl-dev libgnutls28-dev python3-setuptools swig python3-dev bc
           df -h .
@@ -38,10 +38,16 @@ jobs:
         run: |
           set -euo pipefail
           sudo cp /usr/bin/qemu-aarch64-static rescue-work/root/tmp/qemu
-          sudo chroot rescue-work/root /tmp/qemu /usr/bin/mount --help | tee rescue-work/mount-help.txt
+          sudo chroot rescue-work/root /tmp/qemu /usr/bin/mount --help | sudo tee rescue-work/mount-help.txt
           grep -F -- '--move' rescue-work/mount-help.txt
-          sudo chroot rescue-work/root /tmp/qemu /usr/sbin/blkid --help | tee rescue-work/blkid-help.txt
-          grep -F -- 'value' rescue-work/blkid-help.txt
+          sudo chroot rescue-work/root /tmp/qemu /usr/sbin/blkid --help | sudo tee rescue-work/blkid-help.txt
+          sudo cp --sparse=always rescue-work/overlay.ext4 rescue-work/root/tmp/blkid-probe.ext4
+          actual=$(sudo chroot rescue-work/root /tmp/qemu /usr/sbin/blkid -o value -s UUID /tmp/blkid-probe.ext4)
+          test "$actual" = "$(cat rescue-work/overlay-uuid)"
+          sudo rm rescue-work/root/tmp/blkid-probe.ext4
+          for script in /lib/n1-bt-guard.sh /usr/sbin/mount_root /usr/sbin/n1-bt-check; do
+            sudo chroot rescue-work/root /tmp/qemu /bin/busybox sh -n "$script"
+          done
           sudo chroot rescue-work/root /tmp/qemu /bin/busybox --list | grep -x pivot_root
           sudo rm rescue-work/root/tmp/qemu
       - name: Verify vendor entry including malformed loader cases
