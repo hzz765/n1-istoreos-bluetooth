@@ -3,6 +3,7 @@ import importlib.machinery
 import importlib.util
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch, mock_open
 
@@ -14,6 +15,11 @@ loader.exec_module(module)
 
 
 class ShutdownTests(unittest.TestCase):
+    @unittest.skipUnless(Path('/etc/n1-rescue').exists(), 'Real packaged Linux mountpoint check')
+    def test_real_empty_mountpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(subprocess.run(['mountpoint', '-q', directory]).returncode, 32)
+
     def test_shutdown_boundaries(self):
         for case in ('busy_lock', 'busy_mount', 'unmounted', 'mounted', 'unknown'):
             calls = []

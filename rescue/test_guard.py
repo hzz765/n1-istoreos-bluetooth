@@ -79,6 +79,7 @@ class SafetyTests(unittest.TestCase):
         self.assertLess(text.index('/sbin/n1-rescue protect'), text.index('/sbin/n1-rescue mount-boot'))
         self.assertLess(text.index('/sbin/n1-rescue protect'), text.index('ip link set'))
         self.assertNotIn('mount -a', text)
+        self.assertIn('/run/lock /run/backup', text)
         self.assertIn('dropbear -s -g -j -k', text)
 
 
