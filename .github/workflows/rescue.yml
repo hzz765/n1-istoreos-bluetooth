@@ -1,0 +1,48 @@
+name: N1 read-only rescue image
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: n1-rescue
+  cancel-in-progress: false
+jobs:
+  rescue:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install rescue packaging tools
+        run: |
+          python3 rescue/test_guard.py
+          sudo apt-get update
+          sudo apt-get install -y debootstrap debian-archive-keyring qemu-user-static binfmt-support squashfs-tools device-tree-compiler u-boot-tools dosfstools mtools util-linux
+          sudo update-binfmts --enable qemu-aarch64
+      - name: Download the verified matching kernel build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 42432191825
+          name: n1-usb-test-42432191825
+          path: base-artifact
+      - name: Verify base files and prepare boot partition
+        run: python3 rescue/package.py prepare
+      - name: Build isolated ARM64 rescue userspace
+        run: sudo bash rescue/build-root.sh
+      - name: Package and check rescue image
+        run: sudo python3 rescue/package.py finish
+      - name: Upload only checked rescue outputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: n1-rescue-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            rescue-output/n1-rescue.img.gz
+            rescue-output/SHA256SUMS
+            rescue-output/verification.txt
+            rescue-output/packages.txt
+            rescue-output/README.md

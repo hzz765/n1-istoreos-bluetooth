@@ -12,3 +12,8 @@
 !.github/
 !.github/workflows/
 !.github/workflows/build.yml
+!.github/workflows/rescue.yml
+!rescue/
+!rescue/*.sh
+!rescue/*.py
+!rescue/README.md
