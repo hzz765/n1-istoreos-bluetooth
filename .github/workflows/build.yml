@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 350
     env:
       BUILD_MODE: ${{ inputs.mode }}
+      CCACHE_MAXSIZE: 4GiB
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -43,12 +44,34 @@ jobs:
       - name: Prepare pinned source and configuration
         if: inputs.mode != 'probe'
         run: setsid bash scripts/build.sh "$BUILD_MODE" prepare
+      # Only compiler outputs from public source; never cache the workspace or home.
+      - name: Restore compiler cache
+        if: inputs.mode != 'probe'
+        id: compiler_cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: source/.ccache
+          key: n1-ccache-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu22-${{ hashFiles('configs/*', 'patches/*', 'scripts/build.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            n1-ccache-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu22-${{ hashFiles('configs/*', 'patches/*', 'scripts/build.sh') }}-
       - name: Download verified sources
         if: inputs.mode != 'probe'
         run: setsid bash scripts/build.sh "$BUILD_MODE" download
       - name: Compile host tools including LLVM
         if: inputs.mode != 'probe'
         run: setsid bash scripts/build.sh "$BUILD_MODE" tools
+      - name: Report compiler cache statistics
+        if: inputs.mode != 'probe'
+        run: source/staging_dir/host/bin/ccache --show-stats
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/source/.ccache
+      # Save immediately after expensive host tools succeed, even if later firmware fails.
+      - name: Save compiler cache for later builds
+        if: inputs.mode != 'probe'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: source/.ccache
+          key: ${{ steps.compiler_cache.outputs.cache-primary-key }}
       - name: Compile target toolchain
         if: inputs.mode != 'probe'
         run: setsid bash scripts/build.sh "$BUILD_MODE" toolchain

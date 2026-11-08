@@ -70,3 +70,7 @@ btmgmt info
 ```
 
 Use `bluetoothctl` interactively to power on and scan, then pair only with a device you own. Stop on firmware-loading errors, all-zero controller addresses or repeated HCI timeouts. Do not run `hciattach` alongside the serdev driver.
+
+### Compiler cache
+
+Later runs restore only `source/.ccache` from GitHub Actions cache, capped at 4 GiB by `CCACHE_MAXSIZE`. The cache key includes runner OS/architecture, Ubuntu version, pinned configuration, patches and build script. ccache still checks compiler and input identities; no unsafe sloppiness options are enabled. Successful host-tool compilation saves the cache immediately so a later firmware failure does not discard all LLVM work. A cold cache still requires a full compile; no speedup percentage is promised. Running jobs cannot adopt workflow changes. Neither personal files nor the workspace/home directory are cached.
