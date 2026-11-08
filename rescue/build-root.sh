@@ -4,7 +4,15 @@ set -euo pipefail
 ROOT="$PWD/rescue-work/root"
 SNAPSHOT=https://snapshot.debian.org/archive/debian/20261101T000000Z/
 mkdir -p "$ROOT"
-debootstrap --arch=arm64 --foreign --variant=minbase --include=busybox-static,partclone,ntfs-3g,dropbear-bin,kmod,util-linux,fdisk,e2fsprogs,python3,iproute2,gzip,zstd bookworm "$ROOT" "$SNAPSHOT"
+# Ubuntu 22.04's Debian keyring predates bookworm. Import only the official
+# release key after checking its full published fingerprint; never skip signatures.
+export GNUPGHOME="$PWD/rescue-work/gnupg"
+mkdir -m 700 "$GNUPGHOME"
+curl --fail --location --retry 3 --max-time 120 https://ftp-master.debian.org/keys/release-12.asc -o rescue-work/release-12.asc
+FINGERPRINT=$(gpg --batch --show-keys --with-colons rescue-work/release-12.asc | awk -F: '$1=="fpr" { print $10; exit }')
+[[ "$FINGERPRINT" == 4D64FEC119C2029067D6E791F8D2585B8783D481 ]]
+gpg --batch --dearmor -o rescue-work/bookworm.gpg rescue-work/release-12.asc
+debootstrap --keyring="$PWD/rescue-work/bookworm.gpg" --arch=arm64 --foreign --variant=minbase --include=busybox-static,partclone,ntfs-3g,dropbear-bin,kmod,util-linux,fdisk,e2fsprogs,python3,iproute2,gzip,zstd bookworm "$ROOT" "$SNAPSHOT"
 cp /usr/bin/qemu-aarch64-static "$ROOT/usr/bin/"
 printf '#!/bin/sh\nexit 101\n' > "$ROOT/usr/sbin/policy-rc.d"
 chmod 755 "$ROOT/usr/sbin/policy-rc.d"
