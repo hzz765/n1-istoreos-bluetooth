@@ -5,9 +5,11 @@ export LC_ALL=C
 umask 077
 fail() {
     echo "RESCUE STOPPED: $*" >/dev/console
+    [ ! -f /run/protection-error.txt ] || cat /run/protection-error.txt >/dev/console
     # No shell, SSH, automount, reboot or storage repair on failed protection.
     while :; do /bin/busybox sleep 3600; done
 }
+echo "N1 stage F: rescue init reached" >/dev/console
 mount -t proc proc /proc || fail proc
 mount -t sysfs sysfs /sys || fail sysfs
 mount -t tmpfs -o mode=755,nosuid tmpfs /run || fail run
@@ -30,6 +32,7 @@ for attempt in $(seq 1 30); do
     sleep 1
 done
 [ "$protected" = 1 ] || fail protection
+echo "N1 stage G: internal storage protection passed" >/dev/console
 # The boot partition is derived from the verified USB root, never an MMC guess.
 /sbin/n1-rescue mount-boot || fail boot
 mkdir -m 700 /root/.ssh
@@ -55,6 +58,7 @@ echo '' > /proc/sys/kernel/hotplug
 modprobe fuse || fail fuse
 modprobe uas 2>/dev/null || true
 ip link set lo up || fail loopback
+echo "N1 stage H: enabling isolated Ethernet" >/dev/console
 ip link set eth0 up || fail ethernet
 ip address add 192.168.77.1/24 dev eth0 || fail address
 dropbearkey -t ed25519 -f /run/rescue-hostkey > /run/hostkey-public.txt 2>&1 || fail hostkey

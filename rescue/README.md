@@ -1,5 +1,10 @@
 # N1 offline backup rescue — USB only
 
+**Hardware hold:** run 42453775773 failed its first N1 boot attempt (unchanged vendor
+Android splash, no Ethernet link). Unplugging USB restored the original system. The
+failure stage is unknown. Current console diagnostics changes are not hardware-validated;
+do not interpret earlier static/fixture checks as approval for another hardware test.
+
 This is a separate rescue image, not an iStoreOS upgrade. Never upload it to a firmware
 upgrade page or install it to internal storage. Hardware boot and unplug rollback are
 still pending. Build success is not evidence of a working recovery entry point.

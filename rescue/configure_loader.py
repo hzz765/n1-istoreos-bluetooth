@@ -17,7 +17,7 @@ if len(sys.argv) == 1:
     header = ROOT / 'include/configs/meson64.h'
     text = header.read_text()
     text = text[:text.index('/* ROM USB boot support')]
-    text += '#define CFG_EXTRA_ENV_SETTINGS "stdin=serial\\0stdout=serial\\0stderr=serial\\0"\n#endif\n'
+    text += '#define CFG_EXTRA_ENV_SETTINGS "stdin=serial\\0stdout=serial,vidconsole\\0stderr=serial,vidconsole\\0"\n#endif\n'
     header.write_text(text)
     # The generic GXL board otherwise reads MAC/serial and calls networking helpers.
     (ROOT / 'board/amlogic/p212/p212.c').write_text('// SPDX-License-Identifier: GPL-2.0+\n/* N1 rescue: no board-specific persistent storage or networking setup. */\n')
@@ -51,6 +51,8 @@ else:
     assert 'CONFIG_ENV_IS_NOWHERE' in env_backends
     assert config['CONFIG_DEFAULT_DEVICE_TREE'] == '"amlogic/meson-gxl-s905d-phicomm-n1"'
     assert config['CONFIG_WDT_MESON_GXBB'] == 'y'
+    for option in ['VIDEO', 'VIDEO_MESON', 'VIDEO_DT_SIMPLEFB', 'CONSOLE_MUX', 'SYS_CONSOLE_IS_IN_ENV', 'POWER_DOMAIN', 'MESON_GX_VPU_POWER_DOMAIN']:
+        assert config.get('CONFIG_' + option) == 'y', 'Missing diagnostic console option: ' + option
     symbols = subprocess.check_output(['aarch64-linux-gnu-nm', str(ROOT / 'u-boot')], text=True)
     names = {line.split()[-1] for line in symbols.splitlines() if line.split()}
     for name in ['mmc_init', 'mmc_bwrite', 'net_loop', 'env_mmc_load', 'env_mmc_save', 'efi_bootmgr_load']:
@@ -58,7 +60,11 @@ else:
     assert 'main_loop' in names and 'sha256_csum_wd' in names
     dtb = ROOT / 'u-boot.dtb'
     assert subprocess.check_output(['fdtget','-t','s',str(dtb),'/', 'model'], text=True).strip() == 'Phicomm N1'
-    report = {'source': 'https://github.com/u-boot/u-boot/tree/v2024.10',
+    binary = (ROOT / 'u-boot.bin').read_bytes()
+    for marker in [b'stdout=serial,vidconsole\0', b'stderr=serial,vidconsole\0', b'N1 stage A:', b'N1 stage B:', b'N1 stage C:', b'N1 stage D:', b'N1 stage E:']:
+        assert marker in binary, 'Missing packed diagnostic marker: ' + repr(marker)
+    report = {'diagnostics': 'HDMI + serial configured; stages A-E present; actual TV output pending hardware',
+              'source': 'https://github.com/u-boot/u-boot/tree/v2024.10',
               'archive_sha256': '6c99df5f9402d05b5a5cfc60f941f0a584d0d9355fce46261bef008487a0f6c4',
               'loader_sha256': hashlib.sha256((ROOT / 'u-boot.bin').read_bytes()).hexdigest(),
               'environment': 'NOWHERE (RAM defaults only)', 'disabled': disabled,

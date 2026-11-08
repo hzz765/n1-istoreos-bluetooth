@@ -212,6 +212,7 @@ def finish():
         'No normal distro init, automount, overlay initialization or swap service',
         'Root partition is squashfs; no overlay partition',
         'Source-built U-Boot 2024.10: no MMC/network/persistent environment backend; verified fixed USB boot policy',
+        'DIAGNOSTIC BUILD: HDMI + serial configured, loader stages A-E and Linux init stages F-H; actual display unverified',
         'Entry scripts verify loader CRC and stop on return/failure; original vendor boot before entry remains outside image control',
         'ARM64 tools completed NTFS backup/restore fixtures and failure cases; see rehearsal.json; hardware I/O not tested',
         'Public SSH key must be added locally; no keys or backups are build inputs',
