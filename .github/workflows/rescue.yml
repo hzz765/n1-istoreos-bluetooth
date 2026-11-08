@@ -33,7 +33,7 @@ jobs:
       - name: Build and verify source-based USB-only chainloader
         run: bash rescue/build-loader.sh
       - name: Build isolated ARM64 rescue userspace
-        run: sudo bash rescue/build-root.sh
+        run: sudo --preserve-env=GITHUB_ACTIONS bash rescue/build-root.sh
       - name: Package and check rescue image
         run: sudo python3 rescue/package.py finish
       - name: Upload only checked rescue outputs

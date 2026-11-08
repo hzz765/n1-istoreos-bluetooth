@@ -20,7 +20,16 @@ chroot "$ROOT" /debootstrap/debootstrap --second-stage
 chroot "$ROOT" dpkg-query -W -f='${Package}\t${Version}\t${Architecture}\n' > rescue-work/packages.txt
 cp -a rescue-work/original-root/lib/modules "$ROOT/lib/"
 cp -a rescue-work/original-root/lib/firmware "$ROOT/lib/"
+# OpenWrt flattens builtin names. kmod 30 rejects a leading digit; its
+# builtin index uses only the basename, so add a conventional metadata prefix.
+cp "$ROOT/lib/modules/6.6.144/modules.builtin" rescue-work/modules.builtin.openwrt
+sed -i 's|^|kernel/|' "$ROOT/lib/modules/6.6.144/modules.builtin"
 chroot "$ROOT" depmod -a 6.6.144
+# Resolve required modular drivers without loading anything into the CI host kernel.
+for driver in fuse uas; do
+  chroot "$ROOT" modprobe --set-version 6.6.144 --show-depends "$driver" > "rescue-work/$driver-dependencies.txt"
+  grep -Eq "^insmod /lib/modules/6\.6\.144/$driver\.ko[[:space:]]*$" "rescue-work/$driver-dependencies.txt"
+done
 install -m 755 rescue/init.sh "$ROOT/sbin/n1-rescue-init"
 install -m 755 rescue/guard.py "$ROOT/sbin/n1-rescue"
 mkdir -p "$ROOT/boot" "$ROOT/run" "$ROOT/root" "$ROOT/var" "$ROOT/tmp" "$ROOT/proc" "$ROOT/sys" "$ROOT/dev"
