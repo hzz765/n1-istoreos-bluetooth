@@ -72,7 +72,10 @@ try:
     mounted.append(ROOT / 'run/backup')
     subprocess.run(['mount', '--bind', str(ROOT / 'run/backup'), '/run/backup'], check=True)
     mounted.append(Path('/run/backup'))
-    assert run('findmnt', '-n', '-o', 'FSTYPE', '-M', '/run/backup') in ('fuseblk', 'fuse.ntfs-3g')
+    # NTFS-3G uses plain fuse for a regular-file fixture; physical block devices use fuseblk.
+    fixture_fstype = run('findmnt', '-n', '-o', 'FSTYPE', '-M', '/run/backup')
+    assert fixture_fstype in ('fuse', 'fuseblk', 'fuse.ntfs-3g'), repr(fixture_fstype)
+    report['ntfs_fixture_mount_type'] = fixture_fstype
     report['checks'].append('actual ARM64 NTFS-3G mounted a regular-file NTFS image with norecover')
 
     payload = TEST / 'payload'
