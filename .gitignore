@@ -51,3 +51,6 @@
 !audio/package/
 !audio/package/Makefile
 !.github/workflows/audio.yml
+!audio/validate.py
+!.github/workflows/audio-validate.yml
+!audio/BlueALSA-LICENSE

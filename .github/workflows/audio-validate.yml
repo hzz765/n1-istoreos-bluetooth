@@ -1,0 +1,51 @@
+name: N1 audio offline compatibility audit
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify reviewed successful build provenance
+        run: |
+          curl --fail --silent --show-error https://api.github.com/repos/hzz765/n1-istoreos-bluetooth/actions/runs/42555573748 > audio-run.json
+          python3 - <<'PYCODE'
+          import json
+          j=json.load(open('audio-run.json'))
+          assert j['conclusion']=='success' and j['head_sha']=='5c9ecb64501fc2d697d769da61dc64292761314d'
+          assert j['path']=='.github/workflows/audio.yml'
+          PYCODE
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 42555573748
+          name: n1-audio-userspace-42555573748
+          path: audio-input
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 42550922394
+          name: n1-hcd-control-42550922394
+          path: audio-base
+      - name: Install offline tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools qemu-user-static
+      - name: Check package archive hashes
+        run: cd audio-input && sha256sum -c SHA256SUMS
+      - name: Audit new files and execute ARM tools against original USB root
+        run: sudo python3 audio/validate.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: n1-audio-validated-${{ github.run_id }}
+          path: |
+            audio-validated/audio-files.tar.gz
+            audio-validated/manifest.json
+            audio-validated/package-scripts.json
+            audio-validated/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
