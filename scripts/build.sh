@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=$(pwd)
-MODE=${1:?probe, baseline, usb-test or usb-diagnostic required}
+MODE=${1:?probe, baseline, usb-test, usb-diagnostic or candidate required}
 STAGE=${2:-all}
 mkdir -p public-artifacts
 exec > >(tee -a public-artifacts/build.log) 2>&1
 snapshot() { echo "Stage: ${1:-start}"; date -u; df -h .; df -i .; }
 if [[ "$MODE" == probe ]]; then snapshot probe; exit 0; fi
-[[ "$MODE" == baseline || "$MODE" == usb-test || "$MODE" == usb-diagnostic ]]
+[[ "$MODE" == baseline || "$MODE" == usb-test || "$MODE" == usb-diagnostic || "$MODE" == candidate ]]
 is_usb() { [[ "$MODE" == usb-test || "$MODE" == usb-diagnostic ]]; }
 case "$STAGE" in all|prepare|download|tools|toolchain|kernel|firmware|verify) ;; *) exit 2;; esac
 # Independent of compiler slots: quiet unless the remaining disk is low.
@@ -62,6 +62,9 @@ prepare() {
     echo '8bbf245399e66f68304ba0f9185159dd1d557c48b534f2e7be75e2e0f4cb4a9a  files/lib/firmware/brcm/BCM4345C0.hcd' | sha256sum -c -
     printf 'N1 Bluetooth USB test\n' > files/etc/n1-bt-usb-test
   fi
+  if [[ "$MODE" == candidate ]]; then
+    python3 "$ROOT/firmware/prepare.py" "$PWD" "$ROOT"
+  fi
   make defconfig
   if [[ "$MODE" == usb-diagnostic ]]; then
     grep -qx 'CONFIG_PACKAGE_coreutils-timeout=y' .config
@@ -102,14 +105,19 @@ run_build_stage() {
       fi
       stage kernel make target/linux/compile -j4 V=s "${MAKE_ARGS[@]}" ;;
     firmware)
-      is_usb
+      [[ "$MODE" == candidate ]] || is_usb
       stage firmware make -j4 V=s "${MAKE_ARGS[@]}" ;;
-    verify) stage verify python3 "$ROOT/scripts/verify.py" "$MODE" "$ROOT" ;;
+    verify)
+      if [[ "$MODE" == candidate ]]; then
+        stage verify python3 "$ROOT/firmware/verify.py" "$ROOT"
+      else
+        stage verify python3 "$ROOT/scripts/verify.py" "$MODE" "$ROOT"
+      fi ;;
   esac
 }
 if [[ "$STAGE" == all ]]; then
   for part in download tools toolchain kernel; do run_build_stage "$part"; done
-  if is_usb; then run_build_stage firmware; fi
+  if is_usb || [[ "$MODE" == candidate ]]; then run_build_stage firmware; fi
   run_build_stage verify
 else
   run_build_stage "$STAGE"

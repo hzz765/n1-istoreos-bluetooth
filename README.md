@@ -73,3 +73,11 @@ Official candidate source, feeds and public build configuration remain pinned in
 August 2026 build timestamp; this does not claim reproduction of the installed
 kernel ABI. Never install these newly built modules into an existing kernel merely
 because its release string is also 6.6.144.
+
+## Normal firmware candidate (build only)
+
+`candidate.yml` builds a separate normal N1 iStoreOS 24.10.8 candidate, preserving
+upstream web/Docker/storage behavior and eMMC support. It uses the tested RPi HCD
+and Bluetooth source patch. It is **not** an isolated USB image and is **not**
+approved for installation. Microphone compatibility remains unresolved. See
+[scope and installation boundary](firmware/README.txt). No N1 access is performed.

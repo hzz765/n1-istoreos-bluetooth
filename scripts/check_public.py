@@ -4,7 +4,7 @@ import re
 
 root = pathlib.Path('public-artifacts')
 texts = ['build.log', 'build.config', 'kernel.config', 'source-commit.txt',
-         'feeds.lock', 'verification.txt', 'diagnostic-build.json', 'diagnostic-source.json', 'SHA256SUMS']
+         'feeds.lock', 'verification.txt', 'candidate-scope.txt', 'candidate-verification.json', 'package-manifest.json', 'diagnostic-build.json', 'diagnostic-source.json', 'SHA256SUMS']
 patterns = [rb'-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----',
             rb'github_pat_[A-Za-z0-9_]{20,}', rb'gh[pousr]_[A-Za-z0-9]{20,}',
             rb'https?://[^\s/:]+:[^\s/@]+@']

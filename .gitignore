@@ -56,3 +56,8 @@
 !audio/BlueALSA-LICENSE
 
 !.github/workflows/rfcomm.yml
+
+!firmware/
+!firmware/*.py
+!firmware/README.txt
+!.github/workflows/candidate.yml
