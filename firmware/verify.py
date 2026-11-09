@@ -1,8 +1,10 @@
 """Inspect a normal candidate offline; no target devices or mounts are used."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import zlib
@@ -18,6 +20,34 @@ def sha(p):
     with p.open('rb') as f:
         while b:=f.read(1024*1024): h.update(b)
     return h.hexdigest()
+
+
+def own_inspection_tree(fs, work):
+    """Make only the disposable extraction readable; never follow its symlinks."""
+    assert work.is_absolute() and fs == work/'root'
+    assert not work.is_symlink() and work.resolve() == work
+    assert not fs.is_symlink() and fs.is_dir()
+    # unsquashfs preserves root-owned mode-0700 directories. Changing ownership
+    # leaves file bytes intact and does not modify the input image.
+    # chown may clear setuid/setgid bits on this disposable extraction only.
+    subprocess.run(['sudo', 'chown', '-hR', '-P', f'{os.getuid()}:{os.getgid()}',
+                    '--', str(fs)], check=True)
+
+
+def require_absent(fs, relative):
+    """Reject files AND dangling links, without following links outside the tree."""
+    path = Path(relative)
+    assert not path.is_absolute() and '..' not in path.parts and path.parts
+    current = fs
+    for index, part in enumerate(path.parts):
+        current = current/part
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            return
+        assert not stat.S_ISLNK(mode), f'Unexpected link in forbidden path: {relative}'
+        assert index < len(path.parts)-1, f'Forbidden image path exists: {relative}'
+        assert stat.S_ISDIR(mode), f'Non-directory ancestor of forbidden path: {relative}'
 
 def script_body(data):
     assert len(data)>=72 and data[:4]==bytes.fromhex('27051956')
@@ -106,12 +136,13 @@ def main(root):
         node=node.rsplit('/',1)[0] or '/'
     fs=work/'root'
     subprocess.run(['sudo','unsquashfs','-d',str(fs),str(work/'p2')],check=True,stdout=subprocess.DEVNULL)
+    own_inspection_tree(fs, work)
     assert sha(fs/'lib/firmware/brcm/BCM4345C0.hcd')==HCD
-    assert not (fs/'lib/firmware/BCM4345C0.hcd').exists()
+    require_absent(fs, 'lib/firmware/BCM4345C0.hcd')
     for p in ['usr/bin/bluetoothctl','usr/bin/bluetoothd','usr/bin/btmgmt','usr/bin/btmon','usr/bin/dockerd','usr/sbin/uhttpd','www/cgi-bin/luci']:
         assert (fs/p).is_file(),p
     for p in ['etc/n1-bt-usb-test','etc/n1-bt-diagnostic','usr/sbin/n1-bt-check','lib/n1-bt-guard.sh','etc/dropbear/authorized_keys','root/.ssh/authorized_keys']:
-        assert not (fs/p).exists(),p
+        require_absent(fs, p)
     for name in ['BCM-LEGAL.txt','firmware-copyright.txt','candidate.json']:
         assert (fs/'usr/share/n1-bluetooth'/name).read_bytes()==(source/'files/usr/share/n1-bluetooth'/name).read_bytes()
     assert (fs/'lib/upgrade/platform.sh').read_bytes()==(source/'target/linux/amlogic/base-files/lib/upgrade/platform.sh').read_bytes()

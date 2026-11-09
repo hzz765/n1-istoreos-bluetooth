@@ -36,7 +36,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev python3 python3-setuptools rsync swig unzip zlib1g-dev file wget curl patch xz-utils device-tree-compiler u-boot-tools squashfs-tools dosfstools mtools libelf-dev python3-pyelftools kmod util-linux bsdextrautils e2fsprogs qemu-user-static libgnutls28-dev python3-dev bc
       - name: Test candidate configuration and malformed image rejection
-        run: python3 firmware/test_candidate.py
+        run: |
+          python3 firmware/test_candidate.py
+          python3 firmware/test_checkpoint.py
       - name: Prepare pinned source and configuration
         run: setsid bash scripts/build.sh "$BUILD_MODE" prepare
       # Only compiler outputs from public source; never cache the workspace or home.
@@ -87,6 +89,21 @@ jobs:
         run: setsid bash scripts/build.sh "$BUILD_MODE" kernel
       - name: Build normal firmware and matching packages
         run: setsid bash scripts/build.sh "$BUILD_MODE" firmware
+      - name: Retain public compile checkpoint for inspection only
+        run: |
+          python3 scripts/check_public.py
+          python3 firmware/checkpoint.py
+      - name: Upload unverified compile checkpoint - never install
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: UNVERIFIED-N1-COMPILE-CHECKPOINT-${{ github.run_id }}
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            candidate-checkpoint/UNVERIFIED-compile-checkpoint.tar
+            candidate-checkpoint/SHA256SUMS
+            candidate-checkpoint/DO-NOT-INSTALL.txt
       - name: Inspect candidate image without booting it
         run: setsid bash scripts/build.sh "$BUILD_MODE" verify
       - name: Save final compiler cache
