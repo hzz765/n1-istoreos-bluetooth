@@ -21,6 +21,9 @@ from pathlib import Path
 p=Path('feeds/packages/libs/alsa-lib/Makefile');s=p.read_text()
 assert s.count('+kmod-sound-core ')==1
 p.write_text(s.replace('+kmod-sound-core ',''))
+p=Path('feeds/packages/utils/bluez/Makefile');s=p.read_text()
+assert s.count('+USB_SUPPORT:kmod-bluetooth')==1
+p.write_text(s.replace('+USB_SUPPORT:kmod-bluetooth',''))
 PY
  cat > .config <<'EOF'
 CONFIG_TARGET_amlogic=y
