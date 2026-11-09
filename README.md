@@ -1,83 +1,96 @@
-# N1 iStoreOS Bluetooth USB test
+# 斐讯 N1 · iStoreOS 24.10.8 板载蓝牙固件
 
-Temporary, isolated Bluetooth testing for Phicomm N1. **Never install these test
-images through the firmware update page or write them to internal storage.**
+基于固定版本的 iStoreOS 源码，为 **斐讯 N1** 补齐板载 UART 蓝牙支持。首版 `v1.0.0` 使用已经安装并完成基础验收的固件原文件，不为发布重新编译，也不改写已验证镜像的版本字段。
 
-## Current build
+**这是社区定制固件，不是 iStoreOS 官方发行版。仅面向 N1 和 iStoreOS 24.10.8，不适用于其他盒子。**
 
-Use Actions → **N1 isolated Bluetooth USB repack** and follow the complete
-[Bluetooth USB instructions](bluetooth/README.md). The workflow rebuilds a
-restricted USB-only loader and repackages a guarded root filesystem with its own
-preformatted USB overlay. It does not rebuild LLVM or mix kernel modules from
-another distribution.
+[下载首版 Release](https://github.com/hzz765/n1-istoreos-bluetooth/releases/tag/v1.0.0) · [源码构建工作流](.github/workflows/candidate.yml) · [救援系统说明](rescue/README.md)
 
-The input is the checksum-pinned full build `42432191825`: Linux 6.6.144, matching
-modules, a device tree with UART Bluetooth enabled and eMMC disabled, and pinned
-BCM4345C0 HCD firmware. A source-built U-Boot 2024.10 disables MMC, networking,
-persistent environments and fallback boot. The legacy entry uses exact-length
-reads compatible with the inspected Amlogic 2015 loader.
+## 首版已经验证什么
 
-Build [42483222236](https://github.com/hzz765/n1-istoreos-bluetooth/actions/runs/42483222236)
-passed cloud tests and packaging. Download its `n1-bluetooth-42483222236` artifact,
-verify `SHA256SUMS`, and inspect the build records. Independent artifact review and
-local USB readback are separate gates; cloud success does not prove hardware
-Bluetooth operation.
+在一台 N1 上完成了从原 iStoreOS 24.10.8 的保留配置升级、首次重启及以下验收：
 
-## Local preparation and recovery scope
+| 项目 | 结果与边界 |
+| --- | --- |
+| 系统与存储 | 管理页面正常；实际内核包 ABI 与 ROM 一致；原覆盖层、业务分区及 UUID 保留 |
+| PassWall | 原配置保留；代理程序和规则存在，用户确认实际访问正常 |
+| Docker / Home Assistant | 原数据目录、原 HA 镜像及配置恢复，页面和设备正常；未升级 HA |
+| 板载蓝牙 | BCM4345C0 经 UART 注册为 hci0，HCD 加载成功，控制器已上电 |
+| 扫描与短时闲置 | 两轮各 25 秒扫描，中间闲置 60 秒；均正常开始和停止，能发现周边设备，未报告超时 |
 
-Keep existing configuration/application backups private and check them before
-testing. They are not a full-disk image and do not reproduce every internal
-partition. A full offline disk backup is not mandatory for this expressly isolated
-USB test. Do not overwrite internal boot files or change persistent boot settings.
+这些结果不代表所有 N1 启动器、分区布局及插件组合都兼容，也不代表长时间休眠、冷启动配对保持、Wi-Fi 共存和音频均已完成验收。
 
-Preserve the known-good rescue image locally before reusing a single disposable
-USB. Identify that USB by model, capacity and serial number, then read back and
-verify it after writing. Add only a locally held Ed25519 **public** key to its FAT
-partition. The artifact contains no login keys or device-specific settings.
+**本 Release 未包含 BlueALSA 音频服务。**此前独立 U 盘音频实验曾验证音箱播放，但不能等同于本固件的音频验收。HFP 麦克风问题仍未解决，不承诺安装依赖包即可修复。
 
-Where the rescue USB entry and unplug rollback have already been verified for the
-N1, isolation checks and initial Bluetooth tests can be performed in one USB boot,
-followed by one return boot to the original system. Cold-boot pairing persistence
-and Wi-Fi coexistence require their own later tests; do not claim them from a
-single session. See the detailed instructions for connections, checks and exit steps.
+## 下载内容
 
-The installed vendor boot code executes before the USB script and remains outside
-the test image's control. If it does not hand over to USB, the original OS may boot.
-Software isolation is not a physical write blocker or a guarantee against hardware
-failure. Stop if the expected USB identity or isolation checks fail.
+| 文件 | 用途 |
+| --- | --- |
+| `n1-istoreos-24.10.8-bluetooth-v1.0.0.img.gz` | 正常固件镜像，启用内部存储支持；不是隔离测试 U 盘或救援镜像 |
+| `SHA256SUMS` | 本次 Release 附件校验值 |
+| `n1-v1.0.0-matching-packages.tar.gz` | 本次构建的配套 IPK 包，供核对及有需要时离线安装；不是批量安装清单 |
+| `package-manifest.json` | 实际软件包清单 |
+| `build.config` / `kernel.config` / `feeds.lock` / `source-commit.txt` | 公开构建配置和来源记录 |
+| `release-build.json` / `RELEASE-NOTES.txt` | 版本、验证范围和安装边界 |
 
-## Tests and resource use
+镜像 SHA256：
 
-The workflow tests 32 guard scenarios, 272 legacy-entry cases, four legacy file-read
-checks, and 30 loader policy scenarios. It runs the actual ARM64 mount, blkid and
-BusyBox tools under QEMU for command support and syntax checks. These are userspace
-and fixture tests, not N1 board emulation. The finished image's partition data and
-re-extracted root files are checked before upload.
+```text
+5c6f6db6a38a78be91be7b56ed8498ccfbd508f5fc91a1ea3991c92751c67d9c
+```
 
-Resource output appears at stage boundaries. A quiet monitor stops its own build
-stage below a 5 GiB reserve. No recurring capacity spam or paid resources are used.
-Only explicitly named public artifacts are uploaded. Backups, private keys,
-container definitions and device inventories stay outside Git.
+下载附件和 `SHA256SUMS` 到同一目录后，可用 `sha256sum -c SHA256SUMS`（Linux）或 `shasum -a 256 -c SHA256SUMS`（macOS）核验。只下载部分附件时，其余文件会显示缺失；必须确认实际要用的镜像校验通过。
 
-## Other workflows
+## 技术变化
 
-- `build.yml` is the original full source compiler (`probe`, `baseline`, `usb-test`).
-  Use it only when changing kernel inputs. Its older artifact is a pinned input to
-  the current repack, not the currently reviewed bootable test image.
-- `rescue.yml` creates the separate read-only backup rescue system. Unlike the
-  Bluetooth image, its Linux DT enables eMMC for read-only backup access. It is not
-  a Bluetooth test image or an installer.
+- 固定官方源码提交：`5fe2cddefc93d59156ca66740ed896ae954d8e8e`。
+- 回补 N1 UART_A、Broadcom 蓝牙设备树及相应内核支持，使用同次构建的内核、模块、设备树和根文件系统。
+- 提供 BlueZ 基础守护进程、管理工具及相关内核模块。
+- 使用固定 RPi-Distro 固件提交中的 BCM4345C0 HCD，并保留固件版权说明。
+- 保留上游正常 eMMC、网页、Docker、存储和升级逻辑；未加入 USB 隔离或诊断内核插桩。
+- 不内置个人节点、订阅、容器定义、设备备份、个人 SSH 登录密钥或录音。
 
-Official candidate source, feeds and public build configuration remain pinned in
-`configs/` and the build scripts. The candidate source corresponds to the official
-August 2026 build timestamp; this does not claim reproduction of the installed
-kernel ABI. Never install these newly built modules into an existing kernel merely
-because its release string is also 6.6.144.
+| 字段 | 本版值 |
+| --- | --- |
+| iStoreOS | `24.10.8` |
+| 架构 | `aarch64_cortex-a53` |
+| Linux | `6.6.144` |
+| 内核包 | `6.6.144~2e339f86210929e8b3920cf3c91ace89-r1` |
+| 镜像内部 revision | `r0+29754-5fe2cddefc` |
+| 镜像内部定制标记 | `n1-bt-candidate`（保留原构建字段） |
+| HCD SHA256 | `51c45e77ddad91a19e96dc8fb75295b2087c279940df2634b23baf71b6dea42c` |
 
-## Normal firmware candidate (build only)
+原官方固件的内核 ABI 不同。**不能因 `uname -r` 都是 6.6.144 就混装官方旧 kmod 或普通 OpenWrt kmod；不要强制忽略依赖或批量升级软件包。**本版也不是官方固件的逐字节重现。
 
-`candidate.yml` builds a separate normal N1 iStoreOS 24.10.8 candidate, preserving
-upstream web/Docker/storage behavior and eMMC support. It uses the tested RPi HCD
-and Bluetooth source patch. It is **not** an isolated USB image and is **not**
-approved for installation. Microphone compatibility remains unresolved. See
-[scope and installation boundary](firmware/README.txt). No N1 access is performed.
+## 安装与恢复边界
+
+发布不等于对任意设备授权直接刷写。安装前应核实实际启动链、分区布局、正在使用的升级脚本及配置保留行为，并在独立存储上准备、验证系统与业务备份。
+
+本次实机采用经过单独审查的保留配置升级路径：跳过原覆盖层和业务分区、更新启动/系统分区及磁盘签名。首次启动仍会更新覆盖层元数据并清理旧 ABI 模块，不能把“保留配置”理解为覆盖层完全不变。PassWall 等额外安装的软件还依赖覆盖层中的程序与依赖，只有配置文件备份并不充分。
+
+建议在安装前验证救援 U 盘能启动，并确认失败时的恢复范围和数据来源。系统分区备份与 Docker/HA 业务备份不能互相替代。恢复文件的校验和文件系统检查通过，也不等于已经完成断电或真实硬件恢复演练。
+
+不要把本版当作禁用 eMMC 的隔离 U 盘镜像试启动；不要直接覆盖整个内部盘、替换启动 DTB、猜测环境偏移或执行通用 USB 转 eMMC 安装脚本。上游正常启动脚本包含持久环境操作；没有已验证的备份和恢复入口时，不应尝试安装。
+
+## 从源码构建
+
+通过 Actions 手动运行 **N1 normal Bluetooth firmware candidate**。构建从固定官方提交和公开配置开始，安装 feeds 后再次检查包选择，编译完整固件并核对设备树、固件、包清单和内核模块 ABI。仅发布明确列出的产物，不上传整个工作目录。
+
+首版固件来自构建 `42599458051`，发布时镜像内容保持不变。构建记录中的 `candidate` / “installation pending” 是构建时状态；后续实际验收以本页和 Release 说明为准，不更改原记录伪装为官方发布。
+
+构建资源按阶段记录，保留 5 GiB 运行余量，不持续刷屏。完整构建耗时取决于缓存命中、上游下载和编译任务；没有付费运行器依赖。
+
+## 仓库结构与历史实验
+
+- `firmware/`：正常固件准备、检查与测试。
+- `patches/`、`configs/`、`scripts/`：固定输入、补丁和通用构建工具。
+- `rescue/`：独立救援系统；与正常固件及蓝牙测试镜像用途不同。
+- `bluetooth/`、`diagnostics/`、`comparison/`、`audio/`：历史隔离测试、诊断、HCD 对照及音频实验源码，保留供追溯。
+
+历史实验工作流已暂停，过期或失败产物已清理。旧文档中的 Actions 附件链接可能已失效；实验重打包依赖旧输入时需先重建，不能假定历史附件永久存在。正常固件和救援系统仍可从其源码工作流构建。
+
+## 隐私与反馈
+
+发布附件仅来自云端公开构建及通用说明，不包含本机备份、录音、配对记录或私人安装脚本。历史提交中出现的本机姓名/邮箱已改为公开 GitHub 身份；托管平台缓存或他人已有克隆不受仓库更新控制。
+
+反馈问题时请提供型号、版本、内核 ABI、复现步骤和经过脱敏的日志。不要上传 SSH 私钥、节点/订阅、令牌、数据库或完整个人备份。

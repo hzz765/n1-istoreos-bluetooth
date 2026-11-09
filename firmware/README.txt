@@ -1,19 +1,12 @@
-N1 normal Bluetooth firmware candidate — build only
+N1 正常蓝牙固件 / iStoreOS 24.10.8
 
-Based on pinned official iStoreOS 24.10.8 source and public configuration.
-Adds Bluetooth UART/serdev/Broadcom support and the tested RPi BCM4345C0 HCD.
-Keeps official eMMC, web interface, Docker, storage, boot and upgrade behavior.
-Does NOT include USB isolation, diagnostic kernel instrumentation, BlueALSA,
-automatic pairing, audio recording, private keys or personal configuration.
+v1.0.0 使用已完成单台 N1 实机安装及基础验收的构建42599458051。
+完整下载、版本字段、验证范围和恢复边界请阅读仓库根README.md。
 
-HFP microphone compatibility remains unresolved. This does not block compilation,
-but a future fix may still need kernel/firmware changes, not only user packages.
-Userspace packages and kernel packages must be reviewed for the actual build;
-never force-install stock OpenWrt kernel modules based on uname alone.
+这是启用eMMC的正常固件，不是隔离测试U盘或救援镜像。
+保留上游启动、网页、Docker、存储和升级逻辑；不包含BlueALSA、个人配置或登录密钥。
+HFP麦克风仍未解决。基础蓝牙扫描通过不代表本版本音频/配对/长期共存均通过。
 
-This is NOT an isolated USB image and has NOT been approved for installation.
-Official boot scripts include persistent environment operations. Official upgrade
-behavior can reset overlay without the correct backup path and changes the disk
-signature. Existing application backups are not a complete disk recovery image.
-No flash, update, bootloader, DTB replacement or N1 access occurs in this workflow.
-A separate installation and rollback review is required before using the image.
+脚本和镜像内部的candidate标签及构建时installation pending记录保持原样，
+不会为发布改写已验证固件。后续源码构建产物仍需独立核验，不自动继承首版实测结果。
+不得根据相同uname版本混装不同ABI的kmod，安装前需要单独核实备份及保留配置路径。
