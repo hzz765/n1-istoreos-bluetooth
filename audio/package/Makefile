@@ -41,11 +41,11 @@ endef
 define Package/n1-bluealsa-utils
   SECTION:=sound
   CATEGORY:=Sound
-  DEPENDS:=+n1-bluealsa
+  DEPENDS:=+n1-bluealsa +libreadline
   TITLE:=Bluetooth Audio ALSA Backend utils
 endef
 
-CONFIGURE_ARGS += --enable-a2dpconf --disable-aac --disable-mpg123 --disable-manpages
+CONFIGURE_ARGS += --enable-a2dpconf --enable-rfcomm --disable-aac --disable-mpg123 --disable-manpages
 
 define Package/n1-bluealsa/install
 	$(INSTALL_DIR) $(1)/usr/bin
@@ -68,6 +68,7 @@ define Package/n1-bluealsa-utils/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/a2dpconf $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/bluealsa-aplay $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/bluealsactl $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/bluealsa-rfcomm $(1)/usr/bin
 endef
 
 $(eval $(call BuildPackage,n1-bluealsa))

@@ -83,7 +83,7 @@ for n in sorted(selected):
     dst.write_bytes(t.extractfile(m).read());dst.chmod(m.mode & 0o777);records.append({'path':name,'sha256':sha(dst),'mode':m.mode & 0o777})
 shutil.copyfile('/usr/bin/qemu-aarch64-static',root/'tmp/qemu');(root/'tmp/qemu').chmod(0o755)
 checks={}
-for command in [['/usr/bin/bluealsad','--help'],['/usr/bin/bluealsactl','--help'],['/usr/bin/aplay','--version'],['/usr/bin/arecord','--version']]:
+for command in [['/usr/bin/bluealsad','--help'],['/usr/bin/bluealsactl','--help'],['/usr/bin/bluealsa-rfcomm','--help'],['/usr/bin/aplay','--version'],['/usr/bin/arecord','--version']]:
  r=subprocess.run(['chroot',str(root),'/tmp/qemu']+command,capture_output=True,text=True,timeout=30);need(r.returncode==0,'ARM runtime check failed: '+str(command)+r.stderr);checks[command[0]]=r.stdout+r.stderr
 # Exercise both ALSA plugin entry points; lack of D-Bus is intentional offline.
 for label,command in [('pcm',['/usr/bin/aplay','-D','bluealsa:DEV=00:00:00:00:00:01,PROFILE=a2dp','-t','raw','/tmp/empty.raw']),('ctl',['/usr/bin/amixer','-D','bluealsa','info'])]:

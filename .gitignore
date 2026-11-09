@@ -54,3 +54,5 @@
 !audio/validate.py
 !.github/workflows/audio-validate.yml
 !audio/BlueALSA-LICENSE
+
+!.github/workflows/rfcomm.yml
