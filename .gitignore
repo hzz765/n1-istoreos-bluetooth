@@ -45,3 +45,9 @@
 !comparison/*.py
 !comparison/*.txt
 !.github/workflows/hcd-control.yml
+
+!audio/
+!audio/build.sh
+!audio/package/
+!audio/package/Makefile
+!.github/workflows/audio.yml
