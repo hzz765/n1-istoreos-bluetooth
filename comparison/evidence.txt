@@ -1,0 +1,84 @@
+N1 板载蓝牙对照证据账本（2026-11-09）
+范围：公开第一手报告、固定源码、已下载镜像的离线文件比较；未访问 N1，未写任何块设备。
+
+一、关键更正：issue #1202 有明确修复，之前只看首帖漏掉评论
+通过 GitHub API 读取全部 15 条评论（per_page=100，返回15条）。不能再沿用“未找到解决方案”“没有故障文件哈希”的旧结论。
+
+[观察 O1] N1 的 Linux 5.15.100 初始化后，普通 Read Local Name (0x0c14) 超时；power on 可报告成功。首帖 HCD 标识 build0230 / Baseline0143。
+https://github.com/ophub/amlogic-s9xxx-armbian/issues/1202
+
+[观察 O2] 同讨论的 5.15.103、5.15.108、6.1.20、6.1.21 使用者也报告首次可用或扫描一段时间后 timeout。因此“仅 6.6 的问题”“仅 LE Set Random Address 的问题”与跨版本证据不符。
+https://github.com/ophub/amlogic-s9xxx-armbian/issues/1202#issuecomment-1480826379
+https://github.com/ophub/amlogic-s9xxx-armbian/issues/1202#issuecomment-1482697061
+https://github.com/ophub/amlogic-s9xxx-armbian/issues/1202#issuecomment-1519088664
+
+[观察 O3，直接身份关联] 2023-05-06 用户贴出的故障 HCD SHA256 为
+8bbf245399e66f68304ba0f9185159dd1d557c48b534f2e7be75e2e0f4cb4a9a
+与我们当前诊断镜像 HCD 完全一致（我们本地文件65570字节，哈希已核验）。对方是公开用户报告的哈希，不是我们取得其原镜像后独立提取的结果。
+https://github.com/ophub/amlogic-s9xxx-armbian/issues/1202#issuecomment-1537049569
+
+[观察 O4，第一手修复报告] 用户报告替换成 RPi-Distro/bluez-firmware 的 BCM4345C0.hcd 后恢复正常。该评论未附长期压力测试、冷启动次数、BLE业务验收完整记录，不能扩张成所有测试通过。
+https://github.com/ophub/amlogic-s9xxx-armbian/issues/1202#issuecomment-1535693619
+
+[观察 O5，维护者根因与源码修复] 维护者确认：底包上层过期 HCD 被打包脚本移动到 brcm，覆盖了正确文件。修复提交把移动上层 HCD 改为删除上层过期副本。
+https://github.com/ophub/amlogic-s9xxx-armbian/issues/1202#issuecomment-1537079610
+https://github.com/ophub/amlogic-s9xxx-armbian/commit/e6bb084d7350902dbcc6ecc7ebae64335de13b0a
+实际变更：rebuild 中 mv -f ../*.hcd . 改成 rm -f ../*.hcd。
+这证明历史发行版的打包覆盖问题；不能说我们的构建脚本也执行了同一错误操作。我们的已知问题是当前选择了同一旧 HCD 字节。
+
+[观察 O6，修复候选固定身份] 查询原报告指定的 RPi master 分支该路径截至2023-05-06的提交历史，最新为：
+3ae4cba9340fbd746f0ed896c836cd4ec95a4266，2022-12-15。
+该提交说明原文件名 BCM4345C0_003.001.025.0190.0382_RPI_3P.hcd，涉及新手机 BLE advertising 修复；该说明不是针对 N1 UART 超时的根因声明。
+固定文件63806字节，SHA256：
+51c45e77ddad91a19e96dc8fb75295b2087c279940df2634b23baf71b6dea42c
+已实际下载，逐字节等于主agent从完整校验的 ophub6.12.112 镜像提取的 HCD。
+https://github.com/RPi-Distro/bluez-firmware/commit/3ae4cba9340fbd746f0ed896c836cd4ec95a4266
+https://raw.githubusercontent.com/RPi-Distro/bluez-firmware/3ae4cba9340fbd746f0ed896c836cd4ec95a4266/broadcom/BCM4345C0.hcd
+注意 GitHub API 默认分支历史可能不含此路径，核查使用 sha=master，不能拿空列表当无历史。
+
+二、跨固件共性与证据边界
+
+1. Armbian5.77键盘、Armbian5.99音箱、CoreELEC9.2定制版遥控器均有N1实际功能成功报告，证明不以Linux6.12/BlueZ5.82为必要条件；未锁定它们的全部HCD、DTB、内核字节，不能作精确二进制样本。
+https://solaking.com/archives/10/
+https://sumju.net/?p=1268
+https://taosky.org/story/n1-coreelec-docker-openwrt/
+2. OpenXPlay明确指定ophub6.12.112基础镜像并声称其N1方案可配对iPhone；其额外软件包含BlueZ5.82、条件式控制器地址初始化。基础镜像的HCD已提取和校验；作者方案不等于裸基础镜像独立验收。
+https://openxplay.org/phicomm-n1
+3. CoreELEC9.2.2官方源码的HCD为Ampak0073、47080字节，SHA256977763e0e9efe9555fa009c2a2027ba46ad9fec749de01f0c677d2e2157eb90f；不同于新ophub/RPi和当前旧Generic。官方源码不等于M大定制镜像实物。因此不能推导所有成功系统都使用同一HCD，也不能按编号大小判断所有硬件适配。
+https://github.com/CoreELEC/brcmfmac_sdio-firmware-aml/blob/182efe21ac5fc2e08621446150683f83b2d4e34e/firmware/brcm/bcm4345c0.hcd
+4. 可核查的CoreELEC9.2.2官方启动方案和新ophub均使用2Mbps及硬件流控。没有跨案例证据支持优先禁用RTSCTS或改GPIO。
+https://github.com/CoreELEC/CoreELEC/blob/9.2.2/packages/linux-firmware/amlogic/brcmfmac_sdio-firmware-aml/system.d/brcmfmac_sdio-firmware-aml.service
+5. N1初始化后暂时能用、随后HCI无回应，跨5.15和6.1可见；替换旧HCD有历史修复证据。这比“换一个最新内核”更直接支持HCD单变量验证。
+
+三、初始化源码逐项比较，避免把等价机制称作缺失
+
+CoreELEC9.2.2 hciattach：初始115200，固件下载前不预先升高速，加载后主机回初速、sleep(1)，再reset；reset无应答时每4秒重发。这是用户态驱动路径。
+https://github.com/CoreELEC/CoreELEC/blob/9.2.2/packages/network/bluez/patches/bluez-07-broadcom-dont-set-speed-before-loading.patch
+https://github.com/CoreELEC/CoreELEC/blob/9.2.2/packages/network/bluez/patches/bluez-08-hciattach-retry-device-reset-when-no-response.patch
+
+当前Linux6.6.144 btbcm/hci_bcm：
+- Download Minidrv成功后已有50ms等待；每条HCD命令同步等待应答。
+- Launch RAM后已有250ms等待。
+- Reset成功后已有100ms等待。
+- 固件下载后主机恢复init speed；发送控制器oper speed命令成功后切主机；finalize再次initialize/reset并读取控制器信息。
+- 当前实际日志表明下载前已切到2Mbps，initialize成功后回115200，再将控制器和主机切到2Mbps，finalize成功。
+因此“当前驱动没有等待/没有重新初始化/只切主机未切芯片”是错误说法。
+确实不同的是下载时速率、具体等待时长、reset重试策略和用户态/serdev控制路径。但当前失败是在initialize/finalize已成功后，不能把初始化重试当已证实修复；不要在serdev已占用UART时再叠加hciattach。
+对应代码：
+https://github.com/gregkh/linux/blob/v6.6.144/drivers/bluetooth/btbcm.c
+https://github.com/gregkh/linux/blob/v6.6.144/drivers/bluetooth/hci_bcm.c
+
+四、建议与限制
+
+[推断，证据较强] 第一轮HCD-only对照合理：旧文件与历史同症状故障报告哈希完全相同；候选文件是历史修复链接当时版本，且与当前明确成功方案基础镜像实际文件相同。保持当前已验证隔离镜像的kernel/modules/DTB/bootloader/流控/GPIO/2Mbps/BlueZ不变，避免升级多个变量。
+[不作承诺] 仍需在用户N1完成初始化、闲置后普通HCI应答、扫描、配对/连接及冷启动验收，才能称本机修复。不能仅以power on返回成功或无初始报错作为通过。
+[避免盲测] 应记录候选HCD运行时版本、HCD哈希、UART收发计数和首个HCI无应答点；一次失败即保留日志退出，不重启蓝牙服务循环重试。候选文件替换只在离线生成的USB根文件系统，绝不触及N1内部盘。
+[证据限制] 公开历史报告不能证明物理CTS、外部32k波形或旧固件内部失应答机制。HCD文件正确解析也不等于运行稳定。继续保留这些未知，不伪造硬件因果结论。
+
+五、候选固件随附来源说明
+固定RPi提交同目录 broadcom/BCM-LEGAL.txt 与 debian/copyright 应原样附带到工件；不要把顶层GPL COPYING直接说成该二进制HCD的许可证。
+https://raw.githubusercontent.com/RPi-Distro/bluez-firmware/3ae4cba9340fbd746f0ed896c836cd4ec95a4266/broadcom/BCM-LEGAL.txt
+SHA256 092aaac7a0743f6e98ef224dfd68cac7554aa267581121fadcace8599b7d29dd
+https://raw.githubusercontent.com/RPi-Distro/bluez-firmware/3ae4cba9340fbd746f0ed896c836cd4ec95a4266/debian/copyright
+SHA256 611b9f690d41e3cb200d66b1c9c5b23172be40d1f6ca4e59efb2b8232c476ad3
+这些是仓库随附的历史分发说明，copyright要求与BlueZ工具分发时附BCM-LEGAL；文字未单列BCM4345C0型号。本核查记录实际来源与随附说明，不推断未经声明的额外授权。

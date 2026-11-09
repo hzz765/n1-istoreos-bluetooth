@@ -41,3 +41,7 @@
 !diagnostics/image_checks.py
 !diagnostics/test_image_checks.py
 !diagnostics/ci_tests.py
+!comparison/
+!comparison/*.py
+!comparison/*.txt
+!.github/workflows/hcd-control.yml

@@ -1,0 +1,81 @@
+name: N1 isolated HCD control image
+run-name: N1 HCD-only control / run ${{ github.run_number }}
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: n1-hcd-control
+  cancel-in-progress: false
+jobs:
+  package:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Test fail-closed comparison logic
+        run: python3 comparison/test_pack.py
+      - name: Install offline packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools mtools device-tree-compiler e2fsprogs qemu-user-static
+          df -h .
+          test "$(df -Pk . | awk 'END {print $4}')" -ge 5242880
+      - name: Download exact reviewed diagnostic image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 42491553515
+          name: n1-diagnostic-42491553515
+          path: comparison-base
+      - name: Download pinned comparison HCD
+        run: |
+          set -euo pipefail
+          mkdir comparison-input
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --max-time 120 \
+            https://raw.githubusercontent.com/RPi-Distro/bluez-firmware/3ae4cba9340fbd746f0ed896c836cd4ec95a4266/broadcom/BCM4345C0.hcd \
+            -o comparison-input/BCM4345C0.hcd
+          echo '51c45e77ddad91a19e96dc8fb75295b2087c279940df2634b23baf71b6dea42c  comparison-input/BCM4345C0.hcd' | sha256sum -c -
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --max-time 120 \
+            https://raw.githubusercontent.com/RPi-Distro/bluez-firmware/3ae4cba9340fbd746f0ed896c836cd4ec95a4266/broadcom/BCM-LEGAL.txt \
+            -o comparison-input/BCM-LEGAL.txt
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --max-time 120 \
+            https://raw.githubusercontent.com/RPi-Distro/bluez-firmware/3ae4cba9340fbd746f0ed896c836cd4ec95a4266/debian/copyright \
+            -o comparison-input/firmware-copyright.txt
+          echo '092aaac7a0743f6e98ef224dfd68cac7554aa267581121fadcace8599b7d29dd  comparison-input/BCM-LEGAL.txt' | sha256sum -c -
+          echo '611b9f690d41e3cb200d66b1c9c5b23172be40d1f6ca4e59efb2b8232c476ad3  comparison-input/firmware-copyright.txt' | sha256sum -c -
+      - name: Repack root only and verify actual image differences
+        run: |
+          sudo python3 comparison/pack.py \
+            --baseline comparison-base/n1-bluetooth.img.gz \
+            --hcd comparison-input/BCM4345C0.hcd \
+            --work comparison-work --output comparison-output
+      - name: Include original firmware notices and public evidence
+        run: |
+          sudo cp comparison-input/BCM-LEGAL.txt comparison-input/firmware-copyright.txt comparison/evidence.txt comparison-output/
+          sudo python3 - <<'PYCODE'
+          import hashlib,pathlib
+          p=pathlib.Path('comparison-output')
+          files=sorted(x for x in p.iterdir() if x.name!='SHA256SUMS')
+          (p/'SHA256SUMS').write_text(''.join(hashlib.sha256(x.read_bytes()).hexdigest()+'  '+x.name+'\n' for x in files))
+          PYCODE
+      - name: Check explicit public output set
+        run: python3 comparison/check_outputs.py
+      - name: Upload verified comparison image and records
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: n1-hcd-control-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            comparison-output/n1-hcd-control.img.gz
+            comparison-output/comparison.json
+            comparison-output/tree-diff.json
+            comparison-output/arm-checks.json
+            comparison-output/SHA256SUMS
+            comparison-output/BCM-LEGAL.txt
+            comparison-output/firmware-copyright.txt
+            comparison-output/evidence.txt
