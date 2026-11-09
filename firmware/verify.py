@@ -7,6 +7,7 @@ import subprocess
 import sys
 import zlib
 from prepare import HCD, SOURCE, BT_PACKAGES, attest_patch
+from config_check import check as check_config
 
 
 def run(*args):
@@ -51,6 +52,7 @@ def main(root):
         assert f'CONFIG_{c}\n' in config,c
     shutil.copyfile(kernel/'.config',out/'kernel.config')
     bconfig=(source/'.config').read_text()
+    check_config((root/'configs/24.10-config.buildinfo').read_text(), bconfig)
     for p in BT_PACKAGES+['luci','dockerd','containerd']:
         assert f'CONFIG_PACKAGE_{p}=y\n' in bconfig,p
     images=list((source/'bin/targets/amlogic/meson').glob('*phicomm_n1*sysupgrade.img.gz'));assert len(images)==1

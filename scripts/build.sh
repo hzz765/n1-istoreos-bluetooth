@@ -36,10 +36,12 @@ prepare() {
   git clone --filter=blob:none --no-checkout https://github.com/istoreos/istoreos.git source
   cd source
   git checkout --detach "$SOURCE_COMMIT"
-  cp "$ROOT/configs/24.10-config.buildinfo" .config
   cp "$ROOT/configs/24.10-feeds.buildinfo" feeds.conf
   ./scripts/feeds update -a
   ./scripts/feeds install -a
+  # feeds update may run defconfig before external package definitions exist.
+  # Restore the official selections only AFTER all feed packages are installed.
+  cp "$ROOT/configs/24.10-config.buildinfo" .config
   if is_usb; then
     USB_SIGNATURE=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
     [[ "$USB_SIGNATURE" != 00000000 && "$USB_SIGNATURE" != 1234abcd ]]
@@ -70,6 +72,9 @@ prepare() {
     grep -qx 'CONFIG_PACKAGE_coreutils-timeout=y' .config
   fi
   cp .config "$ROOT/public-artifacts/build.config"
+  if [[ "$MODE" == candidate ]]; then
+    python3 "$ROOT/firmware/config_check.py" "$ROOT/configs/24.10-config.buildinfo" .config
+  fi
   git rev-parse HEAD > "$ROOT/public-artifacts/source-commit.txt"
   cp feeds.conf "$ROOT/public-artifacts/feeds.lock"
   printf '%s\n' "$MODE" > "$ROOT/prepared-mode.txt"
